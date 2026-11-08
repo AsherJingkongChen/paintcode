@@ -23,3 +23,12 @@ criterion.workspace = true
 [[bench]]
 name = "paint"
 harness = false
+
+[features]
+# time every stage of a paint; see src/profile.rs and benches/stages.rs
+profile = []
+
+[[bench]]
+name = "stages"
+harness = false
+required-features = ["profile"]

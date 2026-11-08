@@ -1,5 +1,6 @@
 use crate::flower::{Brush, Color};
 use crate::math::rng;
+use crate::profile::{Stage, time};
 use crate::render::{Dab, Footprint, Pickup, Spans, WetCanvas};
 
 use super::path::{Sample, samples};
@@ -150,9 +151,11 @@ pub fn paint_planned(
         };
         return Painted { dabs: 0, carried };
     }
-    if brush.grain > 0.0 {
-        canvas.prepare_grain(brush.grain_scale);
-    }
+    time(Stage::Prepare, || {
+        if brush.grain > 0.0 {
+            canvas.prepare_grain(brush.grain_scale);
+        }
+    });
     let mut carried: [f32; 3] = match color {
         Color::Rgb(c) => *c,
         // a smudge loads the brush with what is under it where it first meets the canvas,
@@ -189,11 +192,14 @@ pub fn paint_planned(
     // Pickup reads the canvas as it was when the petal began. With one chunk nothing has been
     // composited yet, so the live canvas is that state; with more, keep a snapshot of it.
     let snapshot = (pickup && chunks.len() > 1).then(|| {
-        let b = plans.iter().filter_map(|p| canvas.bounds(&p.dab));
-        let (x0, x1, y0, y1) = b.fold((usize::MAX, 0, usize::MAX, 0), |a, (x0, x1, y0, y1)| {
-            (a.0.min(x0), a.1.max(x1), a.2.min(y0), a.3.max(y1))
-        });
-        canvas.snapshot(x0, y0, x1, y1)
+        time(Stage::Snapshot, || {
+            let b = plans.iter().filter_map(|p| canvas.bounds(&p.dab));
+            let (x0, x1, y0, y1) =
+                b.fold((usize::MAX, 0, usize::MAX, 0), |a, (x0, x1, y0, y1)| {
+                    (a.0.min(x0), a.1.max(x1), a.2.min(y0), a.3.max(y1))
+                });
+            canvas.snapshot(x0, y0, x1, y1)
+        })
     });
 
     // the kernels go in the canvas's scratch buffer, taken out so the canvas can be read and
@@ -207,23 +213,27 @@ pub fn paint_planned(
         };
         let cv: &WetCanvas = canvas;
         let dabs = plans[range.clone()].iter().map(|p| &p.dab);
-        let evaluated: Vec<(Footprint, Option<Pickup>)> =
-            cv.footprints(dabs, opts.spans, src, &mut scratch);
+        let evaluated: Vec<(Footprint, Option<Pickup>)> = time(Stage::Footprint, || {
+            cv.footprints(dabs, opts.spans, src, &mut scratch)
+        });
         // carry the colour along: each dab is laid in the colour the brush holds before its own pickup
-        let mut colours = Vec::with_capacity(evaluated.len());
-        for (plan, (_, under)) in plans[range.clone()].iter().zip(&evaluated) {
-            colours.push(carried);
-            if let (true, Some(u)) = (pickup, under) {
-                let mix = 1.0 - (1.0 - brush.pickup * u.wetness).powf(plan.mix_exp);
-                let (keep, take) = ((1.0 - mix) as f32, mix as f32);
-                for ch in 0..3 {
-                    carried[ch] = carried[ch] * keep + (u.colour[ch] as f32) * take;
+        let colours = time(Stage::Carry, || {
+            let mut colours = Vec::with_capacity(evaluated.len());
+            for (plan, (_, under)) in plans[range.clone()].iter().zip(&evaluated) {
+                colours.push(carried);
+                if let (true, Some(u)) = (pickup, under) {
+                    let mix = 1.0 - (1.0 - brush.pickup * u.wetness).powf(plan.mix_exp);
+                    let (keep, take) = ((1.0 - mix) as f32, mix as f32);
+                    for ch in 0..3 {
+                        carried[ch] = carried[ch] * keep + (u.colour[ch] as f32) * take;
+                    }
                 }
             }
-        }
+            colours
+        });
         let prints: Vec<(&Footprint, [f32; 3])> =
             evaluated.iter().map(|(f, _)| f).zip(colours).collect();
-        canvas.composite(&prints);
+        time(Stage::Composite, || canvas.composite(&prints));
         if let Some(dabs) = canvas.dabs.as_mut() {
             // only the dabs that reached the canvas, as they were laid
             for (plan, (fp, rgb)) in plans[range].iter().zip(&prints) {
