@@ -20,7 +20,7 @@ use crate::render::{Canvas, Coat, Dab, MAX_PIXELS};
 
 use crate::error::{Error, Result};
 
-fn file(msg: impl Into<String>) -> Error {
+fn file_error(msg: impl Into<String>) -> Error {
     Error::File(msg.into())
 }
 
@@ -56,7 +56,7 @@ pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
     out
 }
 
-fn read_flower_chunk(info: &png::Info) -> Result<Option<String>> {
+fn decode_flower_chunk(info: &png::Info) -> Result<Option<String>> {
     let Some(chunk) = info.utf8_text.iter().find(|c| c.keyword == FLOWER_KEYWORD) else {
         return Ok(None);
     };
@@ -67,7 +67,7 @@ fn read_flower_chunk(info: &png::Info) -> Result<Option<String>> {
     chunk.get_text().map(Some).map_err(Error::FlowerChunk)
 }
 
-fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
+fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
     let mut dec = png::Decoder::new(Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     Ok(dec.read_info()?)
@@ -83,15 +83,15 @@ fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
 /// that is there but cannot be read is left off: the pixels are still the canvas, and
 /// [`decode_flower`] is where its error is told.
 pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
-    let (mut canvas, flower) = read_png(bytes)?;
+    let (mut canvas, flower) = decode_png(bytes)?;
     canvas.flower = flower.ok().flatten();
     Ok(canvas)
 }
 
 /// The pixels of a PNG as a canvas without its flower, and apart from them, what reading the
 /// flower gave: so a broken flower costs [`decode_canvas`] nothing and [`decode_flower`] its error.
-fn read_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
-    let mut reader = open_png(bytes)?;
+fn decode_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
+    let mut reader = png_reader(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     if w.saturating_mul(h) > MAX_PIXELS {
         return Err(Error::Size(format!(
@@ -100,7 +100,7 @@ fn read_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
     }
     let size = reader
         .output_buffer_size()
-        .ok_or_else(|| file("PNG too large"))?;
+        .ok_or_else(|| file_error("PNG too large"))?;
     let mut buf = Vec::new();
     buf.try_reserve_exact(size)
         .map_err(|source| Error::Memory {
@@ -111,8 +111,8 @@ fn read_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
     let info = reader.next_frame(&mut buf)?;
     buf.truncate(info.buffer_size());
     // a flower may also sit after the pixels, if another program wrote the file again
-    let flower = match read_flower_chunk(reader.info()) {
-        Ok(None) if reader.finish().is_ok() => read_flower_chunk(reader.info()),
+    let flower = match decode_flower_chunk(reader.info()) {
+        Ok(None) if reader.finish().is_ok() => decode_flower_chunk(reader.info()),
         found => found,
     };
     let channels = match info.color_type {
@@ -120,7 +120,7 @@ fn read_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
         png::ColorType::GrayscaleAlpha => 2,
         png::ColorType::Rgb => 3,
         png::ColorType::Rgba => 4,
-        png::ColorType::Indexed => return Err(file("PNG palette was not expanded")),
+        png::ColorType::Indexed => return Err(file_error("PNG palette was not expanded")),
     };
     let data = if channels == 3 {
         buf
@@ -178,9 +178,9 @@ pub fn encode_flower(flower: &Flower) -> Vec<u8> {
 /// is found the one way [`decode_canvas`] finds it.
 pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
-        read_png(bytes)?.1?.ok_or(Error::NoFlower)?
+        decode_png(bytes)?.1?.ok_or(Error::NoFlower)?
     } else {
-        String::from_utf8(bytes.to_vec()).map_err(|_| file("a flower is UTF-8 JSON"))?
+        String::from_utf8(bytes.to_vec()).map_err(|_| file_error("a flower is UTF-8 JSON"))?
     };
     Flower::from_json(&text)
 }
@@ -335,16 +335,16 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
         let end = ply[pos..]
             .iter()
             .position(|&b| b == b'\n')
-            .ok_or_else(|| file("PLY header has no end_header"))?;
+            .ok_or_else(|| file_error("PLY header has no end_header"))?;
         let s = std::str::from_utf8(&ply[pos..pos + end])
-            .map_err(|_| file("PLY header is not UTF-8"))?
+            .map_err(|_| file_error("PLY header is not UTF-8"))?
             .trim()
             .to_string();
         pos += end + 1;
         Ok(s)
     };
     if line().ok().as_deref() != Some("ply") {
-        return Err(file("not a PLY file"));
+        return Err(file_error("not a PLY file"));
     }
     let (mut names, mut sizes, mut comments) = (Vec::new(), Vec::new(), Vec::new());
     let mut count = 0usize;
@@ -358,26 +358,30 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
             count = n
                 .trim()
                 .parse()
-                .map_err(|_| file(format!("bad PLY line {l:?}")))?;
+                .map_err(|_| file_error(format!("bad PLY line {l:?}")))?;
         } else if let Some(p) = l.strip_prefix("property ") {
             let size = match p.split_whitespace().collect::<Vec<_>>()[..] {
                 ["float" | "float32", name] => (4, name),
                 ["double" | "float64", name] => (8, name),
-                _ => return Err(file(format!("only float and double properties, got {l:?}"))),
+                _ => {
+                    return Err(file_error(format!(
+                        "only float and double properties, got {l:?}"
+                    )));
+                }
             };
             sizes.push(size.0);
             names.push(size.1.to_string());
         } else if l != "format binary_little_endian 1.0" {
-            return Err(file(format!("unsupported PLY line {l:?}")));
+            return Err(file_error(format!("unsupported PLY line {l:?}")));
         }
     }
     let stride: usize = sizes.iter().sum();
     let body = &ply[pos..];
     let need = count
         .checked_mul(stride)
-        .ok_or_else(|| file("PLY vertex count is too large"))?;
+        .ok_or_else(|| file_error("PLY vertex count is too large"))?;
     if body.len() < need {
-        return Err(file(format!(
+        return Err(file_error(format!(
             "PLY is cut short: {} of {need} bytes",
             body.len()
         )));
@@ -410,15 +414,15 @@ pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
         .comments
         .iter()
         .find_map(|c| c.strip_prefix(COAT_COMMENT))
-        .ok_or_else(|| file("this PLY is not a coat: it has no paintcode comment"))?;
-    let meta: Value =
-        serde_json::from_str(meta).map_err(|e| file(format!("bad paintcode comment: {e}")))?;
+        .ok_or_else(|| file_error("this PLY is not a coat: it has no paintcode comment"))?;
+    let meta: Value = serde_json::from_str(meta)
+        .map_err(|e| file_error(format!("bad paintcode comment: {e}")))?;
     let size = |k: &str| -> Result<usize> {
         meta[k]
             .as_u64()
             .filter(|&v| v >= 1)
             .map(|v| v as usize)
-            .ok_or_else(|| file(format!("bad {k} in the paintcode comment")))
+            .ok_or_else(|| file_error(format!("bad {k} in the paintcode comment")))
     };
     let background: [f32; 3] = meta["background"]
         .as_array()
@@ -427,15 +431,15 @@ pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
             let v: Option<Vec<f32>> = a.iter().map(|c| c.as_f64().map(|f| f as f32)).collect();
             v?.try_into().ok()
         })
-        .ok_or_else(|| file("bad background in the paintcode comment"))?;
+        .ok_or_else(|| file_error("bad background in the paintcode comment"))?;
     let seed = meta["seed"]
         .as_i64()
-        .ok_or_else(|| file("bad seed in the paintcode comment"))?;
+        .ok_or_else(|| file_error("bad seed in the paintcode comment"))?;
     let cols: Vec<&[f64]> = EXACT_FIELDS
         .iter()
         .map(|f| {
             s.column(f)
-                .ok_or_else(|| file(format!("this PLY is not a coat: it has no {f} field")))
+                .ok_or_else(|| file_error(format!("this PLY is not a coat: it has no {f} field")))
         })
         .collect::<Result<_>>()?;
     let n = cols[0].len();
