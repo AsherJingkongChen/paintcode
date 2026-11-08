@@ -165,17 +165,11 @@ pub fn encode_flower(flower: &Flower) -> Vec<u8> {
 }
 
 /// A flower, from a `.flower.json` or from the canvas it is on. A PNG must carry a flower: a
-/// canvas without one is an error, never a guess.
+/// canvas without one is an error, never a guess. A PNG is read as a canvas first, so the flower
+/// is found the one way [`decode_canvas`] finds it.
 pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
-        let mut reader = open_png(bytes)?;
-        match read_flower_chunk(reader.info())? {
-            Some(text) => text,
-            None => {
-                reader.finish().map_err(|e| file(format!("bad PNG: {e}")))?;
-                read_flower_chunk(reader.info())?.ok_or(Error::NoFlower)?
-            }
-        }
+        decode_canvas(bytes)?.flower.ok_or(Error::NoFlower)?
     } else {
         String::from_utf8(bytes.to_vec()).map_err(|_| file("a flower is UTF-8 JSON"))?
     };
