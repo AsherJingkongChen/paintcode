@@ -61,18 +61,10 @@ fn exp2(x: F) -> F {
     // no fraction bits left: two adds in any vector unit, where round() may not be one
     const MAGIC: f32 = 12_582_912.0;
     let i = (x + F::splat(MAGIC)) - F::splat(MAGIC);
-    // 2^f = e^(f ln 2) for |f| <= 1/2, its Taylor series to the 7th power
+    // 2^f = e^(f ln 2) for |f| <= 1/2, its Taylor series to the 4th power
     let t = (x - i) * F::splat(std::f32::consts::LN_2);
-    let mut p = F::splat(1.0 / 5040.0);
-    for c in [
-        1.0 / 720.0,
-        1.0 / 120.0,
-        1.0 / 24.0,
-        1.0 / 6.0,
-        0.5,
-        1.0,
-        1.0,
-    ] {
+    let mut p = F::splat(1.0 / 24.0);
+    for c in [1.0 / 6.0, 0.5, 1.0, 1.0] {
         p = p * t + F::splat(c);
     }
     // 2^i from its exponent bits; i = -127 gives the bits of 0.0
@@ -92,11 +84,11 @@ fn log2(x: F) -> F {
     let high = m.simd_gt(F::splat(std::f32::consts::SQRT_2));
     m = high.select(m * F::splat(0.5), m);
     e = high.select(e + F::splat(1.0), e);
-    // log2 m = 2 / ln 2 * atanh t, t = (m - 1) / (m + 1), |t| < 0.172, to the 9th power
+    // log2 m = 2 / ln 2 * atanh t, t = (m - 1) / (m + 1), |t| < 0.172, to the 5th power
     let t = (m - F::splat(1.0)) / (m + F::splat(1.0));
     let t2 = t * t;
-    let mut p = F::splat(1.0 / 9.0);
-    for c in [1.0 / 7.0, 1.0 / 5.0, 1.0 / 3.0, 1.0] {
+    let mut p = F::splat(1.0 / 5.0);
+    for c in [1.0 / 3.0, 1.0] {
         p = p * t2 + F::splat(c);
     }
     e + F::splat(2.0 / std::f32::consts::LN_2) * t * p
@@ -154,9 +146,9 @@ mod tests {
             }
             worst.push((h, gap));
         }
-        // 6e-8 for a Gaussian to 1.0e-7 for the hardest: float32 rounding, the table was 1.1e-4
+        // series cut where the 8-bit canvas cannot see them: 4.6e-5 at worst, the table was 1.1e-4
         for (h, gap) in &worst {
-            assert!(*gap < 2e-7, "{worst:?} at hardness {h}");
+            assert!(*gap < 5e-5, "{worst:?} at hardness {h}");
         }
     }
 
