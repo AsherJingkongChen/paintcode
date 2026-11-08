@@ -46,8 +46,8 @@ const PETAL_KEYS: [&str; 6] = ["brush", "color", "points", "smooth", "id", "grou
 
 impl Flower {
     pub fn from_json(text: &str) -> Result<Flower> {
-        let v: Value =
-            serde_json::from_str(text).map_err(|e| Error::Flower(format!("flower is not JSON: {e}")))?;
+        let v: Value = serde_json::from_str(text)
+            .map_err(|e| Error::Flower(format!("flower is not JSON: {e}")))?;
         Flower::from_value(&v)
     }
 
@@ -82,7 +82,9 @@ impl Flower {
                 })
                 .ok_or_else(|| Error::Flower(format!("{k} must be a whole number, got {v}")))?;
             if n < min {
-                return Err(Error::Flower(format!("{k} must be at least {min}, got {v}")));
+                return Err(Error::Flower(format!(
+                    "{k} must be at least {min}, got {v}"
+                )));
             }
             Ok(n)
         };
@@ -99,7 +101,8 @@ impl Flower {
             for (name, spec) in bs {
                 named.insert(
                     name,
-                    Brush::from_spec(spec).map_err(|e| Error::Flower(format!("brush {name}: {e}")))?,
+                    Brush::from_spec(spec)
+                        .map_err(|e| Error::Flower(format!("brush {name}: {e}")))?,
                 );
             }
         }
@@ -113,7 +116,9 @@ impl Flower {
             .iter()
             .enumerate()
         {
-            petals.push(parse_petal(s, &named).map_err(|e| Error::Flower(format!("petal {idx}: {e}")))?);
+            petals.push(
+                parse_petal(s, &named).map_err(|e| Error::Flower(format!("petal {idx}: {e}")))?,
+            );
         }
         let mut ids: HashMap<&str, usize> = HashMap::new();
         for (idx, p) in petals.iter().enumerate() {
@@ -227,7 +232,9 @@ fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
         match s.get(k) {
             None => Ok(None),
             Some(Value::String(t)) if !t.is_empty() => Ok(Some(t.clone())),
-            Some(v) => Err(Error::Flower(format!("{k} must be a non-empty string, got {v}"))),
+            Some(v) => Err(Error::Flower(format!(
+                "{k} must be a non-empty string, got {v}"
+            ))),
         }
     };
     let (id, group) = (name("id")?, name("group")?);

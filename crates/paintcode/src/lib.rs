@@ -21,6 +21,13 @@
 //! [`flower_to_coat`] keeps the dabs it lays, and [`lay_coat`] lays them again. Dried, a wet canvas
 //! is the [`Canvas`]: [`flower_to_canvas`] and [`coat_to_canvas`].
 
+#![deny(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::panic))]
 #![feature(portable_simd)]
 
 pub mod error;
@@ -72,10 +79,7 @@ pub fn flower_on_canvas(flower: &Flower, canvas: Canvas) -> Canvas {
 
 /// The flower on a canvas. A canvas without one is an error.
 pub fn flower_off_canvas(canvas: &Canvas) -> Result<Flower> {
-    let text = canvas
-        .flower
-        .as_deref()
-        .ok_or(Error::NoFlower)?;
+    let text = canvas.flower.as_deref().ok_or(Error::NoFlower)?;
     Flower::from_json(text)
 }
 
@@ -123,7 +127,9 @@ fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<WetCanvas> 
     }
     let keys = flower.jitter_keys();
     lay_petals(&mut canvas, &flower.petals, &keys, size.scale, opts);
-    profile::time(profile::Stage::Downsample, || canvas.downsample(size.supersample));
+    profile::time(profile::Stage::Downsample, || {
+        canvas.downsample(size.supersample)
+    });
     Ok(canvas)
 }
 
@@ -149,7 +155,9 @@ impl Size {
         }
         let ss = opts.supersample;
         if ss < 1 {
-            return Err(Error::Flower(format!("supersample must be at least 1, got {ss}")));
+            return Err(Error::Flower(format!(
+                "supersample must be at least 1, got {ss}"
+            )));
         }
         let side = |v: usize| (v as f64 * opts.scale).round_ties_even() as usize;
         let (w, h) = (side(flower.width), side(flower.height));

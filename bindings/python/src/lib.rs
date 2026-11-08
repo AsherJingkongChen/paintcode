@@ -6,6 +6,14 @@
 //! str or an `os.PathLike`, and the files are read and written here, in Rust. A function with more than one parameter takes them
 //! by keyword only.
 
+#![deny(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::panic))]
+
 use std::path::{Path, PathBuf};
 
 use paintcode::{Error, Flower, RenderOpts, io};

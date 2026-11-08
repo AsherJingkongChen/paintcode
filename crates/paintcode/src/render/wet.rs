@@ -178,12 +178,7 @@ fn lay(alpha: f32, col: [f32; 3], ks: &[f32], rgb: [&mut [f32]; 3], wet: &mut [f
 impl WetCanvas {
     /// A blank canvas. Fails, rather than aborting, when it is larger than [`MAX_PIXELS`] or the
     /// memory cannot be had.
-    pub fn new(
-        width: usize,
-        height: usize,
-        background: [f32; 3],
-        seed: i64,
-    ) -> Result<WetCanvas> {
+    pub fn new(width: usize, height: usize, background: [f32; 3], seed: i64) -> Result<WetCanvas> {
         let pixels = width
             .checked_mul(height)
             .filter(|&n| n <= MAX_PIXELS)

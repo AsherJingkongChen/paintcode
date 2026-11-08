@@ -378,7 +378,9 @@ fn a_flower_rides_on_its_canvas() {
     assert_eq!(paintcode::decode_flower(&png).unwrap(), flower(busy()));
     assert_eq!(paintcode::decode_canvas(&png).unwrap(), on);
     assert_eq!(paintcode::flower_off_canvas(&on).unwrap(), flower(busy()));
-    let e = paintcode::flower_off_canvas(&canvas).unwrap_err().to_string();
+    let e = paintcode::flower_off_canvas(&canvas)
+        .unwrap_err()
+        .to_string();
     assert_eq!(e, "no flower on this canvas");
 }
 

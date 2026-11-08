@@ -33,3 +33,5 @@ jobs:
         run: rustup toolchain install
       - name: Everything builds, the binding and the benches included
         run: cargo check --workspace --all-targets
+      - name: Clippy, warnings as errors; no unwrap, panic, todo or unimplemented outside tests
+        run: cargo clippy --workspace --all-targets -- -D warnings

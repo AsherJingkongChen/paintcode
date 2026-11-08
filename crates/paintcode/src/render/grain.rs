@@ -127,7 +127,10 @@ fn percentile(sorted_pick: &mut [f32], q: f64) -> f64 {
     let b = if hi == lo {
         a
     } else {
-        *rest.iter().min_by(|x, y| x.total_cmp(y)).unwrap()
+        *rest
+            .iter()
+            .min_by(|x, y| x.total_cmp(y))
+            .expect("hi is lo + 1 < n, so a value lies above the lo-th")
     };
     let diff = (b - a) as f64; // subtract(b, a) happens in float32
     if gamma >= 0.5 {

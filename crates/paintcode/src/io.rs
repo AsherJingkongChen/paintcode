@@ -91,7 +91,9 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
             "a {w}x{h} PNG is too large: the limit is {MAX_PIXELS} pixels (16384 x 16384)"
         )));
     }
-    let size = reader.output_buffer_size().ok_or_else(|| file("PNG too large"))?;
+    let size = reader
+        .output_buffer_size()
+        .ok_or_else(|| file("PNG too large"))?;
     let mut buf = Vec::new();
     buf.try_reserve_exact(size)
         .map_err(|_| Error::Memory(format!("not enough memory for a {w}x{h} PNG")))?;
@@ -372,7 +374,10 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
         .checked_mul(stride)
         .ok_or_else(|| file("PLY vertex count is too large"))?;
     if body.len() < need {
-        return Err(file(format!("PLY is cut short: {} of {need} bytes", body.len())));
+        return Err(file(format!(
+            "PLY is cut short: {} of {need} bytes",
+            body.len()
+        )));
     }
     let mut columns = vec![Vec::with_capacity(count); names.len()];
     for row in body[..need].chunks_exact(stride.max(1)) {
@@ -380,9 +385,9 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
         for (col, &size) in columns.iter_mut().zip(&sizes) {
             let b = &row[at..at + size];
             col.push(if size == 4 {
-                f32::from_le_bytes(b.try_into().unwrap()) as f64
+                f32::from_le_bytes(b.try_into().expect("a float property is 4 bytes")) as f64
             } else {
-                f64::from_le_bytes(b.try_into().unwrap())
+                f64::from_le_bytes(b.try_into().expect("a double property is 8 bytes"))
             });
             at += size;
         }
@@ -504,7 +509,12 @@ mod tests {
             png.len()
         );
         assert_eq!(decode_canvas(&png).unwrap().flower.unwrap(), long);
-        assert!(decode_flower(b"{nope").unwrap_err().to_string().contains("not JSON"));
+        assert!(
+            decode_flower(b"{nope")
+                .unwrap_err()
+                .to_string()
+                .contains("not JSON")
+        );
     }
 
     #[test]
@@ -645,9 +655,17 @@ mod tests {
         let cut = text.find("comment paintcode").unwrap();
         let mut other = ply[..cut].to_vec();
         other.extend_from_slice(&ply[cut + text[cut..].find('\n').unwrap() + 1..]);
-        assert!(decode_coat(&other).unwrap_err().to_string().contains("not a coat"));
+        assert!(
+            decode_coat(&other)
+                .unwrap_err()
+                .to_string()
+                .contains("not a coat")
+        );
         assert!(decode_coat(b"plain text").is_err());
         let png = encode_canvas(&canvas());
-        assert_eq!(decode_coat(&png).unwrap_err(), Error::File("not a PLY file".into()));
+        assert_eq!(
+            decode_coat(&png).unwrap_err(),
+            Error::File("not a PLY file".into())
+        );
     }
 }

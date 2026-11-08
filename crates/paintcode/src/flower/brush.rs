@@ -160,8 +160,9 @@ impl Brush {
     /// Brush from a name, or an object `{"brush": ..., field: value, ...}`.
     pub fn from_spec(spec: &Value) -> Result<Brush> {
         match spec {
-            Value::String(name) => brush(name)
-                .ok_or_else(|| Error::Flower(format!("unknown brush {name:?}; have {:?}", sorted_names()))),
+            Value::String(name) => brush(name).ok_or_else(|| {
+                Error::Flower(format!("unknown brush {name:?}; have {:?}", sorted_names()))
+            }),
             Value::Object(m) if m.contains_key("preset") => {
                 err("\"preset\" is called \"brush\" now: {\"brush\": \"filbert\", ...}")
             }
@@ -192,8 +193,9 @@ impl Brush {
         let mut b = self.clone();
         for (k, v) in fields {
             let num = |v: &Value| {
-                v.as_f64()
-                    .ok_or_else(|| Error::Flower(format!("brush field {k} must be a number, got {v}")))
+                v.as_f64().ok_or_else(|| {
+                    Error::Flower(format!("brush field {k} must be a number, got {v}"))
+                })
             };
             let opt = |v: &Value| {
                 if v.is_null() {
