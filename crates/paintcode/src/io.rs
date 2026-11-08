@@ -173,7 +173,7 @@ pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
             Some(text) => text,
             None => {
                 reader.finish().map_err(|e| file(format!("bad PNG: {e}")))?;
-                read_flower_chunk(reader.info())?.ok_or_else(|| file("no flower on this PNG"))?
+                read_flower_chunk(reader.info())?.ok_or(Error::NoFlower)?
             }
         }
     } else {
@@ -493,10 +493,7 @@ mod tests {
         assert_eq!(decode_flower(&png).unwrap(), flower);
         assert_eq!(decode_flower(text.as_bytes()).unwrap(), flower);
         let bare = encode_canvas(&canvas());
-        assert_eq!(
-            decode_flower(&bare).unwrap_err(),
-            Error::File("no flower on this PNG".into())
-        );
+        assert_eq!(decode_flower(&bare).unwrap_err(), Error::NoFlower);
         // the flower is compressed: a thousand petals cost far less than their text
         let long = format!("[{}]", vec![r#"{"points":[[1,2.5]]}"#; 1000].join(","));
         let png = encode_canvas(&Canvas {

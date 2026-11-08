@@ -90,7 +90,7 @@ def test_mistakes_are_value_errors_that_name_the_petal_or_the_file(tmp_path):
         paintcode.load_flower(tmp_path / "bad.flower.json")
     bare = paintcode.save_canvas(canvas=paintcode.flower_to_canvas(flower=FLOWER), pathname=tmp_path / "bare")
     assert bare.name == "bare.png"
-    with pytest.raises(ValueError, match="bare.png: no flower on this PNG"):
+    with pytest.raises(ValueError, match="bare.png: no flower on this canvas"):
         paintcode.load_flower(tmp_path / "bare.png")
     with pytest.raises(ValueError, match="not a PLY"):
         paintcode.load_coat(tmp_path / "bare.png")
