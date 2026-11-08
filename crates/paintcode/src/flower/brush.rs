@@ -325,6 +325,12 @@ const FIELDS: [&str; 21] = [
     "grain_scale",
 ];
 
+fn sorted_names() -> Vec<&'static str> {
+    let mut v = BRUSH_NAMES.to_vec();
+    v.sort();
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,10 +344,4 @@ mod tests {
             assert_eq!(Brush::default().with_fields(&fields).unwrap(), b, "{name}");
         }
     }
-}
-
-fn sorted_names() -> Vec<&'static str> {
-    let mut v = BRUSH_NAMES.to_vec();
-    v.sort();
-    v
 }

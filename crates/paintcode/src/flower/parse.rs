@@ -117,10 +117,10 @@ impl Flower {
         }
         let mut ids: HashMap<&str, usize> = HashMap::new();
         for (idx, p) in petals.iter().enumerate() {
-            if let Some(id) = p.id.as_deref() {
-                if let Some(first) = ids.insert(id, idx) {
-                    return err(format!("petal {idx}: id {id:?} is petal {first}'s already"));
-                }
+            if let Some(id) = p.id.as_deref()
+                && let Some(first) = ids.insert(id, idx)
+            {
+                return err(format!("petal {idx}: id {id:?} is petal {first}'s already"));
             }
         }
         Ok(Flower {

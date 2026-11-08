@@ -63,6 +63,7 @@ mod tests {
 
     /// These numbers are part of the format: a flower renders the same in every version only
     /// while they hold (the numpy engine of 0.4 pinned the same values).
+    #[allow(clippy::excessive_precision)]
     #[test]
     fn spec_is_pinned() {
         assert_eq!(key(&[24, 1, 0, 0, 0]), 0x45C2_76ED_BC63_8DF7);
@@ -71,6 +72,7 @@ mod tests {
         let prefix = key(&[7, GRAIN, 3000, 0]);
         assert_eq!(prefix, 0x7311_5726_4855_CD28);
         let grid: Vec<f32> = (0..4).map(|i| grid_value(prefix, i)).collect();
+        // each f32 as the reference printed it, in the digits of the f64 it widened to
         assert_eq!(
             grid,
             [
