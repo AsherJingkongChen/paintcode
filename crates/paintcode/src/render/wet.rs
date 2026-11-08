@@ -38,8 +38,10 @@ pub const MAX_PIXELS: usize = 1 << 28;
 /// A zeroed buffer, or a message instead of an abort when the memory is not there.
 fn buffer(len: usize, what: &str) -> Result<Vec<f32>> {
     let mut v = Vec::new();
-    v.try_reserve_exact(len)
-        .map_err(|_| Error::Memory(format!("not enough memory for the {what} ({len} floats)")))?;
+    v.try_reserve_exact(len).map_err(|source| Error::Memory {
+        what: format!("the {what} ({len} floats)"),
+        source,
+    })?;
     v.resize(len, 0f32);
     Ok(v)
 }

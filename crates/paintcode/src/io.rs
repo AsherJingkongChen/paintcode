@@ -61,19 +61,14 @@ fn read_flower_chunk(info: &png::Info) -> Result<Option<String>> {
         return Ok(None);
     };
     let mut chunk = chunk.clone();
-    chunk
-        .decompress_text_with_limit(FLOWER_LIMIT)
-        .map_err(|e| file(format!("the flower on this PNG is unreadable: {e}")))?;
-    chunk
-        .get_text()
-        .map(Some)
-        .map_err(|e| file(format!("the flower on this PNG is unreadable: {e}")))
+    chunk.decompress_text_with_limit(FLOWER_LIMIT)?;
+    Ok(chunk.get_text().map(Some)?)
 }
 
 fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
     let mut dec = png::Decoder::new(Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    dec.read_info().map_err(|e| file(format!("not a PNG: {e}")))
+    Ok(dec.read_info()?)
 }
 
 /// A canvas from a PNG, with the flower on it if there is one. Any PNG works: palette and
@@ -96,11 +91,12 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
         .ok_or_else(|| file("PNG too large"))?;
     let mut buf = Vec::new();
     buf.try_reserve_exact(size)
-        .map_err(|_| Error::Memory(format!("not enough memory for a {w}x{h} PNG")))?;
+        .map_err(|source| Error::Memory {
+            what: format!("a {w}x{h} PNG"),
+            source,
+        })?;
     buf.resize(size, 0);
-    let info = reader
-        .next_frame(&mut buf)
-        .map_err(|e| file(format!("bad PNG: {e}")))?;
+    let info = reader.next_frame(&mut buf)?;
     buf.truncate(info.buffer_size());
     // a flower may also sit after the pixels, if another program wrote the file again
     let mut flower = read_flower_chunk(reader.info())?;
@@ -487,7 +483,7 @@ mod tests {
         assert_eq!(decode_flower(&png).unwrap(), flower);
         assert_eq!(decode_flower(text.as_bytes()).unwrap(), flower);
         let bare = encode_canvas(&canvas());
-        assert_eq!(decode_flower(&bare).unwrap_err(), Error::NoFlower);
+        assert!(matches!(decode_flower(&bare), Err(Error::NoFlower)));
         // the flower is compressed: a thousand petals cost far less than their text
         let long = format!("[{}]", vec![r#"{"points":[[1,2.5]]}"#; 1000].join(","));
         let png = encode_canvas(&Canvas {
@@ -654,9 +650,19 @@ mod tests {
         );
         assert!(decode_coat(b"plain text").is_err());
         let png = encode_canvas(&canvas());
-        assert_eq!(
-            decode_coat(&png).unwrap_err(),
-            Error::File("not a PLY file".into())
+        assert!(matches!(decode_coat(&png), Err(Error::File(m)) if m == "not a PLY file"));
+    }
+
+    #[test]
+    fn a_broken_png_keeps_the_png_crate_error_as_its_source() {
+        use std::error::Error as _;
+        let e = decode_canvas(b"\x89PNG\r\n\x1a\nnot a header").unwrap_err();
+        assert!(matches!(e, Error::Png(_)), "{e}");
+        assert!(e.source().is_some());
+        let e = crate::flower::Flower::from_json("{nope").unwrap_err();
+        assert!(
+            matches!(e, Error::FlowerJson(_)) && e.source().is_some(),
+            "{e}"
         );
     }
 }

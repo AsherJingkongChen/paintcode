@@ -26,8 +26,8 @@ use serde_json::Value;
 /// for everything a caller can fix, with the engine's message.
 fn value_error(e: Error) -> PyErr {
     match e {
-        Error::Memory(m) => PyMemoryError::new_err(m),
-        e => PyValueError::new_err(e.to_string()),
+        Error::Memory { .. } => PyMemoryError::new_err(e.to_string()),
+        _ => PyValueError::new_err(e.to_string()),
     }
 }
 
@@ -44,7 +44,7 @@ fn write(pathname: PathBuf, suffix: &str, bytes: &[u8]) -> PyResult<PathBuf> {
 fn file_error(path: &Path, e: Error) -> PyErr {
     let message = format!("{}: {e}", path.display());
     match e {
-        Error::Memory(_) => PyMemoryError::new_err(message),
+        Error::Memory { .. } => PyMemoryError::new_err(message),
         _ => PyValueError::new_err(message),
     }
 }

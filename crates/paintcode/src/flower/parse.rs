@@ -46,8 +46,7 @@ const PETAL_KEYS: [&str; 6] = ["brush", "color", "points", "smooth", "id", "grou
 
 impl Flower {
     pub fn from_json(text: &str) -> Result<Flower> {
-        let v: Value = serde_json::from_str(text)
-            .map_err(|e| Error::Flower(format!("flower is not JSON: {e}")))?;
+        let v: Value = serde_json::from_str(text)?;
         Flower::from_value(&v)
     }
 
