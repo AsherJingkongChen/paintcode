@@ -14,7 +14,7 @@ pub enum Stage {
     Blank,
     /// A petal's path resampled and its dabs placed, before any pixel is read.
     Plan,
-    /// The paper grain a petal's brush needs, made once per grain scale.
+    /// The paper grain and the dab profile table a petal's brush needs, each made once.
     Prepare,
     /// The canvas under a petal kept as it was, for pickup to read.
     Snapshot,

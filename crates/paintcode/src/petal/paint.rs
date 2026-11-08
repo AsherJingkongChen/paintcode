@@ -155,6 +155,7 @@ pub fn paint_planned(
         if brush.grain > 0.0 {
             canvas.prepare_grain(brush.grain_scale);
         }
+        canvas.prepare_profile(brush.hardness);
     });
     let mut carried: [f32; 3] = match color {
         Color::Rgb(c) => *c,
