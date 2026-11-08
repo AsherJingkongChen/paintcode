@@ -61,8 +61,10 @@ fn read_flower_chunk(info: &png::Info) -> Result<Option<String>> {
         return Ok(None);
     };
     let mut chunk = chunk.clone();
-    chunk.decompress_text_with_limit(FLOWER_LIMIT)?;
-    Ok(chunk.get_text().map(Some)?)
+    chunk
+        .decompress_text_with_limit(FLOWER_LIMIT)
+        .map_err(Error::FlowerChunk)?;
+    chunk.get_text().map(Some).map_err(Error::FlowerChunk)
 }
 
 fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
@@ -77,8 +79,18 @@ fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
 /// image keeps its tones; Pillow instead clips 16-bit grey at 255, which turns most of such an
 /// image white.
 ///
-/// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated.
+/// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated. A flower
+/// that is there but cannot be read is left off: the pixels are still the canvas, and
+/// [`decode_flower`] is where its error is told.
 pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
+    let (mut canvas, flower) = read_png(bytes)?;
+    canvas.flower = flower.ok().flatten();
+    Ok(canvas)
+}
+
+/// The pixels of a PNG as a canvas without its flower, and apart from them, what reading the
+/// flower gave: so a broken flower costs [`decode_canvas`] nothing and [`decode_flower`] its error.
+fn read_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
     let mut reader = open_png(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     if w.saturating_mul(h) > MAX_PIXELS {
@@ -99,10 +111,10 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
     let info = reader.next_frame(&mut buf)?;
     buf.truncate(info.buffer_size());
     // a flower may also sit after the pixels, if another program wrote the file again
-    let mut flower = read_flower_chunk(reader.info())?;
-    if flower.is_none() && reader.finish().is_ok() {
-        flower = read_flower_chunk(reader.info())?;
-    }
+    let flower = match read_flower_chunk(reader.info()) {
+        Ok(None) if reader.finish().is_ok() => read_flower_chunk(reader.info()),
+        found => found,
+    };
     let channels = match info.color_type {
         png::ColorType::Grayscale => 1,
         png::ColorType::GrayscaleAlpha => 2,
@@ -123,12 +135,13 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
             })
             .collect()
     };
-    Ok(Canvas {
+    let canvas = Canvas {
         width: info.width as usize,
         height: info.height as usize,
         pixels: data,
-        flower,
-    })
+        flower: None,
+    };
+    Ok((canvas, flower))
 }
 
 // ------------------------------------------------------------------------------------ flower
@@ -165,7 +178,7 @@ pub fn encode_flower(flower: &Flower) -> Vec<u8> {
 /// is found the one way [`decode_canvas`] finds it.
 pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
-        decode_canvas(bytes)?.flower.ok_or(Error::NoFlower)?
+        read_png(bytes)?.1?.ok_or(Error::NoFlower)?
     } else {
         String::from_utf8(bytes.to_vec()).map_err(|_| file("a flower is UTF-8 JSON"))?
     };
@@ -664,5 +677,31 @@ mod tests {
             matches!(e, Error::FlowerJson(_)) && e.source().is_some(),
             "{e}"
         );
+    }
+
+    #[test]
+    fn a_broken_flower_leaves_the_pixels_and_is_told_when_asked_for() {
+        let mut c = canvas();
+        c.flower = Some(r#"{"width": 7, "height": 5, "petals": []}"#.into());
+        let mut png = encode_canvas(&c);
+        // iTXt: keyword, NUL, compression flag and method, two empty strings, then zlib data
+        let at = png
+            .windows(4)
+            .position(|w| w == b"iTXt")
+            .expect("an iTXt chunk");
+        let len = u32::from_be_bytes(png[at - 4..at].try_into().expect("4 bytes")) as usize;
+        let data = at + 4;
+        let text = data + FLOWER_KEYWORD.len() + 5;
+        // keep the two-byte zlib header, break the stream after it
+        for b in &mut png[text + 2..data + len] {
+            *b ^= 0x5a;
+        }
+        let crc = crc32_more(crc32(b"iTXt"), &png[data..data + len]);
+        png[data + len..data + len + 4].copy_from_slice(&crc.to_be_bytes());
+        let back = decode_canvas(&png).unwrap();
+        assert_eq!(back.pixels, c.pixels);
+        assert_eq!(back.flower, None);
+        let e = decode_flower(&png).unwrap_err();
+        assert!(matches!(e, Error::FlowerChunk(_)), "{e}");
     }
 }
