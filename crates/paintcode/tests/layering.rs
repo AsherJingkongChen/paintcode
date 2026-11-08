@@ -4,13 +4,14 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-const ALLOWED: [(&str, &[&str]); 6] = [
+const ALLOWED: [(&str, &[&str]); 7] = [
+    ("error", &[]),
     ("profile", &[]),
     ("math", &[]),
-    ("flower", &["math"]),
-    ("render", &["math"]),
+    ("flower", &["error", "math"]),
+    ("render", &["error", "math"]),
     ("petal", &["profile", "math", "flower", "render"]),
-    ("io", &["flower", "render"]),
+    ("io", &["error", "flower", "render"]),
 ];
 
 fn sources(m: &str, src: &Path) -> Vec<String> {

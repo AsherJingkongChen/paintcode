@@ -9,13 +9,18 @@
 use std::path::{Path, PathBuf};
 
 use paintcode::{Error, Flower, RenderOpts, io};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyMemoryError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use serde_json::Value;
 
+/// A Python exception for an engine error: MemoryError when the memory is not there, ValueError
+/// for everything a caller can fix, with the engine's message.
 fn value_error(e: Error) -> PyErr {
-    PyValueError::new_err(e.0)
+    match e {
+        Error::Memory(m) => PyMemoryError::new_err(m),
+        e => PyValueError::new_err(e.to_string()),
+    }
 }
 
 /// Write `bytes` at `pathname` plus `suffix`, and give back the path written.
@@ -27,9 +32,13 @@ fn write(pathname: PathBuf, suffix: &str, bytes: &[u8]) -> PyResult<PathBuf> {
     Ok(path)
 }
 
-/// A file's mistake, named with its path.
-fn file_error(path: &Path, e: String) -> PyErr {
-    PyValueError::new_err(format!("{}: {e}", path.display()))
+/// [`value_error`], with the path of the file in front of the message.
+fn file_error(path: &Path, e: Error) -> PyErr {
+    let message = format!("{}: {e}", path.display());
+    match e {
+        Error::Memory(_) => PyMemoryError::new_err(message),
+        _ => PyValueError::new_err(message),
+    }
 }
 
 /// A flower from its dict, checked: what the engine would refuse is refused here, before any file

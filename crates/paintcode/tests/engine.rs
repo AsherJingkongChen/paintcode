@@ -378,7 +378,7 @@ fn a_flower_rides_on_its_canvas() {
     assert_eq!(paintcode::decode_flower(&png).unwrap(), flower(busy()));
     assert_eq!(paintcode::decode_canvas(&png).unwrap(), on);
     assert_eq!(paintcode::flower_off_canvas(&on).unwrap(), flower(busy()));
-    let e = paintcode::flower_off_canvas(&canvas).unwrap_err().0;
+    let e = paintcode::flower_off_canvas(&canvas).unwrap_err().to_string();
     assert_eq!(e, "no flower on this canvas");
 }
 
@@ -386,8 +386,8 @@ fn a_flower_rides_on_its_canvas() {
 
 fn error(v: Value, opts: RenderOpts) -> String {
     match Flower::from_value(&v) {
-        Err(e) => e.0,
-        Ok(s) => paint_flower(&s, &opts).unwrap_err().0,
+        Err(e) => e.to_string(),
+        Ok(s) => paint_flower(&s, &opts).unwrap_err().to_string(),
     }
 }
 
@@ -441,12 +441,12 @@ fn canvas_numbers_must_be_whole() {
             ..RenderOpts::default()
         },
     );
-    assert!(e.unwrap_err().0.contains("supersample"));
+    assert!(e.unwrap_err().to_string().contains("supersample"));
 }
 
 #[test]
 fn the_old_names_are_explained() {
-    let e = |v: Value| Flower::from_value(&v).unwrap_err().0;
+    let e = |v: Value| Flower::from_value(&v).unwrap_err().to_string();
     assert!(e(json!({"canvas": {"width": 10}})).contains("top of the flower"));
     assert!(e(json!({"strokes": []})).contains("petals"));
     assert!(e(json!({"colour": "#fff"})).contains("unknown key"));
@@ -459,7 +459,7 @@ fn far_points_are_measured_against_the_flower() {
     let v = json!({"width": 10, "height": 10, "petals": [{"brush": "round", "points": [[20, 20], [300, 200]]}]});
     let e = paint_flower(&flower(v), &RenderOpts::default())
         .unwrap_err()
-        .0;
+        .to_string();
     assert!(e.contains("too far outside the 10x10 canvas"), "{e}");
 }
 
@@ -571,7 +571,7 @@ fn a_group_keeps_its_jitter_unless_its_own_group_changes() {
 fn ids_and_groups_are_names() {
     let bad = |extra: Value| {
         let f = json!({"petals": [jittery(10.0, json!({"id": "a"})), jittery(20.0, extra)]});
-        Flower::from_value(&f).unwrap_err().0
+        Flower::from_value(&f).unwrap_err().to_string()
     };
     assert_eq!(
         bad(json!({"id": "a"})),

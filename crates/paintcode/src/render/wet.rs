@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use std::simd::prelude::*;
 
+use crate::error::{Error, Result};
 use crate::math::gauss::{self, CUTOFF_Q};
 
 /// Lanes: pixels laid at once.
@@ -35,10 +36,10 @@ pub struct Dab {
 pub const MAX_PIXELS: usize = 1 << 28;
 
 /// A zeroed buffer, or a message instead of an abort when the memory is not there.
-fn buffer(len: usize, what: &str) -> Result<Vec<f32>, String> {
+fn buffer(len: usize, what: &str) -> Result<Vec<f32>> {
     let mut v = Vec::new();
     v.try_reserve_exact(len)
-        .map_err(|_| format!("not enough memory for the {what} ({len} floats)"))?;
+        .map_err(|_| Error::Memory(format!("not enough memory for the {what} ({len} floats)")))?;
     v.resize(len, 0f32);
     Ok(v)
 }
@@ -182,17 +183,17 @@ impl WetCanvas {
         height: usize,
         background: [f32; 3],
         seed: i64,
-    ) -> Result<WetCanvas, String> {
+    ) -> Result<WetCanvas> {
         let pixels = width
             .checked_mul(height)
             .filter(|&n| n <= MAX_PIXELS)
             .ok_or_else(|| {
-                format!(
+                Error::Size(format!(
                     "a {width}x{height} canvas is too large: the limit is {MAX_PIXELS} pixels \
                      (16384 x 16384), counted after scale and supersample"
-                )
+                ))
             })?;
-        let plane = |v: f32| -> Result<Vec<f32>, String> {
+        let plane = |v: f32| -> Result<Vec<f32>> {
             let mut p = buffer(pixels, "canvas")?;
             p.fill(v);
             Ok(p)

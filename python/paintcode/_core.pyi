@@ -21,7 +21,8 @@ The files: a flower is a .flower.json, or rides on its canvas as a .flower.png; 
 .png; a coat is a .coat.ply. A load_ takes the path of a file and tells formats apart by its bytes,
 not its name; a save_ takes a pathname, the path without a suffix, adds the suffix of what it
 writes and returns the path written. A mistake in a
-flower or a file is a ValueError that names the petal or the path.
+flower or a file is a ValueError that names the petal or the path, or the size
+of a canvas past its limit; only memory that is not there is a MemoryError.
 
 A function with more than one parameter takes them by keyword only.
 """
