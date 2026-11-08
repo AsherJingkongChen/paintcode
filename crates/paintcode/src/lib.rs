@@ -9,10 +9,11 @@
 //!
 //! | module   | part   | may use               | does                                            |
 //! |----------|--------|-----------------------|-------------------------------------------------|
+//! | `profile`| leaf   | nothing               | stage timers, empty without the `profile` feature|
 //! | `math`   | leaf   | nothing               | counter-based RNG, dab profile and geometry     |
 //! | `flower` | bones  | math                  | flower, petal and brush types, brushes, colours |
 //! | `render` | render | math                  | dabs to pixels, coats, paper grain, downsampling|
-//! | `petal`  | flesh  | math, flower, render  | petals to dabs, carrying paint                  |
+//! | `petal`  | flesh  | profile, math, flower, render | petals to dabs, carrying paint          |
 //! | `io`     | files  | flower, render        | encoders and decoders, in pairs                 |
 //!
 //! This file only conducts: [`paint_flower`] walks the petals of a [`Flower`] over a [`WetCanvas`],
@@ -25,6 +26,7 @@ pub mod flower;
 pub mod io;
 pub mod math;
 pub mod petal;
+pub mod profile;
 pub mod render;
 #[cfg(test)]
 mod tests;
@@ -76,7 +78,8 @@ pub fn flower_off_canvas(canvas: &Canvas) -> Result<Flower> {
 
 /// Paint a flower: its canvas.
 pub fn flower_to_canvas(flower: &Flower, opts: &RenderOpts) -> Result<Canvas> {
-    Ok(paint_flower(flower, opts)?.dry())
+    let canvas = paint_flower(flower, opts)?;
+    Ok(profile::time(profile::Stage::Dry, || canvas.dry()))
 }
 
 /// Paint a flower on a blank canvas, and leave it wet: float, with its wetness.
@@ -99,7 +102,8 @@ pub fn flower_to_coat(flower: &Flower, opts: &RenderOpts) -> Result<Coat> {
 
 /// Lay a coat's dabs again: the same canvas, bit for bit, as painting its flower.
 pub fn coat_to_canvas(coat: &Coat) -> Result<Canvas> {
-    Ok(lay_coat(coat)?.dry())
+    let canvas = lay_coat(coat)?;
+    Ok(profile::time(profile::Stage::Dry, || canvas.dry()))
 }
 
 /// Lay a coat's dabs on a blank canvas, and leave it wet: the same, bit for bit, as
@@ -110,13 +114,13 @@ pub fn lay_coat(coat: &Coat) -> Result<WetCanvas> {
 
 fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<WetCanvas> {
     let size = Size::of(flower, opts)?;
-    let mut canvas = size.blank(flower)?;
+    let mut canvas = profile::time(profile::Stage::Blank, || size.blank(flower))?;
     if record {
         canvas.dabs = Some(Vec::new());
     }
     let keys = flower.jitter_keys();
     lay_petals(&mut canvas, &flower.petals, &keys, size.scale, opts);
-    canvas.downsample(size.supersample);
+    profile::time(profile::Stage::Downsample, || canvas.downsample(size.supersample));
     Ok(canvas)
 }
 
@@ -192,7 +196,9 @@ fn lay_petals(
             .iter()
             .map(|q| [q[0] * scale, q[1] * scale, q[2], q[3]])
             .collect();
-        let planned = petal::plan_petal(seed, keys[i], &brush, &pts, p.smooth);
+        let planned = profile::time(profile::Stage::Plan, || {
+            petal::plan_petal(seed, keys[i], &brush, &pts, p.smooth)
+        });
         (brush, planned)
     };
     let n = petals.len().min(keys.len());

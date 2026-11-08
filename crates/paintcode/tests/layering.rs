@@ -4,11 +4,12 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-const ALLOWED: [(&str, &[&str]); 5] = [
+const ALLOWED: [(&str, &[&str]); 6] = [
+    ("profile", &[]),
     ("math", &[]),
     ("flower", &["math"]),
     ("render", &["math"]),
-    ("petal", &["math", "flower", "render"]),
+    ("petal", &["profile", "math", "flower", "render"]),
     ("io", &["flower", "render"]),
 ];
 
