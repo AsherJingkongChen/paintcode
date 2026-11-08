@@ -9,19 +9,28 @@
 //!
 //! | module   | part   | may use               | does                                            |
 //! |----------|--------|-----------------------|-------------------------------------------------|
+//! | `error`  | leaf   | nothing               | every way paintcode fails, as one enum          |
 //! | `profile`| leaf   | nothing               | stage timers, empty without the `profile` feature|
 //! | `math`   | leaf   | nothing               | counter-based RNG, dab profile and geometry     |
-//! | `flower` | bones  | math                  | flower, petal and brush types, brushes, colours |
-//! | `render` | render | math                  | dabs to pixels, coats, paper grain, downsampling|
+//! | `flower` | bones  | error, math           | flower, petal and brush types, brushes, colours |
+//! | `render` | render | error, math           | dabs to pixels, coats, paper grain, downsampling|
 //! | `petal`  | flesh  | profile, math, flower, render | petals to dabs, carrying paint          |
-//! | `io`     | files  | flower, render        | encoders and decoders, in pairs                 |
+//! | `io`     | files  | error, flower, render | encoders and decoders, in pairs                 |
 //!
 //! This file only conducts: [`paint_flower`] walks the petals of a [`Flower`] over a [`WetCanvas`],
 //! [`flower_to_coat`] keeps the dabs it lays, and [`lay_coat`] lays them again. Dried, a wet canvas
 //! is the [`Canvas`]: [`flower_to_canvas`] and [`coat_to_canvas`].
 
+#![deny(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::panic))]
 #![feature(portable_simd)]
 
+pub mod error;
 pub mod flower;
 pub mod io;
 pub mod math;
@@ -31,7 +40,8 @@ pub mod render;
 #[cfg(test)]
 mod tests;
 
-pub use flower::{Error, Flower, Petal, Result};
+pub use error::{Error, Result};
+pub use flower::{Flower, Petal};
 pub use io::{
     decode_canvas, decode_coat, decode_flower, encode_canvas, encode_coat, encode_flower,
 };
@@ -69,10 +79,7 @@ pub fn flower_on_canvas(flower: &Flower, canvas: Canvas) -> Canvas {
 
 /// The flower on a canvas. A canvas without one is an error.
 pub fn flower_off_canvas(canvas: &Canvas) -> Result<Flower> {
-    let text = canvas
-        .flower
-        .as_deref()
-        .ok_or_else(|| Error("no flower on this canvas".into()))?;
+    let text = canvas.flower.as_deref().ok_or(Error::NoFlower)?;
     Flower::from_json(text)
 }
 
@@ -109,7 +116,7 @@ pub fn coat_to_canvas(coat: &Coat) -> Result<Canvas> {
 /// Lay a coat's dabs on a blank canvas, and leave it wet: the same, bit for bit, as
 /// [`paint_flower`] on the flower that made the coat.
 pub fn lay_coat(coat: &Coat) -> Result<WetCanvas> {
-    render::lay_coat(coat).map_err(Error)
+    render::lay_coat(coat)
 }
 
 fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<WetCanvas> {
@@ -120,7 +127,9 @@ fn paint(flower: &Flower, opts: &RenderOpts, record: bool) -> Result<WetCanvas> 
     }
     let keys = flower.jitter_keys();
     lay_petals(&mut canvas, &flower.petals, &keys, size.scale, opts);
-    profile::time(profile::Stage::Downsample, || canvas.downsample(size.supersample));
+    profile::time(profile::Stage::Downsample, || {
+        canvas.downsample(size.supersample)
+    });
     Ok(canvas)
 }
 
@@ -139,19 +148,21 @@ struct Size {
 impl Size {
     fn of(flower: &Flower, opts: &RenderOpts) -> Result<Size> {
         if !(opts.scale.is_finite() && opts.scale > 0.0) {
-            return Err(Error(format!(
+            return Err(Error::Flower(format!(
                 "scale must be a positive number, got {}",
                 opts.scale
             )));
         }
         let ss = opts.supersample;
         if ss < 1 {
-            return Err(Error(format!("supersample must be at least 1, got {ss}")));
+            return Err(Error::Flower(format!(
+                "supersample must be at least 1, got {ss}"
+            )));
         }
         let side = |v: usize| (v as f64 * opts.scale).round_ties_even() as usize;
         let (w, h) = (side(flower.width), side(flower.height));
         if w == 0 || h == 0 {
-            return Err(Error(format!(
+            return Err(Error::Flower(format!(
                 "a {}x{} flower at scale {} has no pixels",
                 flower.width, flower.height, opts.scale
             )));
@@ -159,7 +170,7 @@ impl Size {
         let (fw, fh) = (flower.width, flower.height);
         for (i, p) in flower.petals.iter().enumerate() {
             if let Some([x, y]) = p.far_point(fw, fh) {
-                return Err(Error(format!(
+                return Err(Error::Flower(format!(
                     "petal {i}: point [{x}, {y}] is too far outside the {fw}x{fh} canvas \
                      (more than {} px)",
                     flower::POINT_MARGIN * fw.max(fh) as f64
@@ -175,7 +186,7 @@ impl Size {
     }
 
     fn blank(&self, flower: &Flower) -> Result<WetCanvas> {
-        WetCanvas::new(self.width, self.height, flower.background, flower.seed).map_err(Error)
+        WetCanvas::new(self.width, self.height, flower.background, flower.seed)
     }
 }
 

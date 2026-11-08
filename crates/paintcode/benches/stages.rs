@@ -50,13 +50,20 @@ fn main() {
 fn report(name: &str, wall: f64, spent: &[Spent]) {
     let ms = |nanos: f64| nanos / 1e6;
     println!("{name}: one thread, per paint, mean of {PAINTS}");
-    println!("  {:<11} {:>9} {:>6} {:>8} {:>10}", "stage", "ms", "share", "calls", "us/call");
+    println!(
+        "  {:<11} {:>9} {:>6} {:>8} {:>10}",
+        "stage", "ms", "share", "calls", "us/call"
+    );
     let mut staged = 0.0;
     for s in spent {
         let nanos = s.nanos as f64 / PAINTS as f64;
         let calls = s.calls as f64 / PAINTS as f64;
         staged += nanos;
-        let per = if calls > 0.0 { nanos / calls / 1e3 } else { 0.0 };
+        let per = if calls > 0.0 {
+            nanos / calls / 1e3
+        } else {
+            0.0
+        };
         println!(
             "  {:<11} {:>9.2} {:>5.1}% {:>8.0} {:>10.2}",
             s.stage.name(),
@@ -67,7 +74,12 @@ fn report(name: &str, wall: f64, spent: &[Spent]) {
         );
     }
     let rest = wall - staged;
-    println!("  {:<11} {:>9.2} {:>5.1}%", "rest", ms(rest), 100.0 * rest / wall);
+    println!(
+        "  {:<11} {:>9.2} {:>5.1}%",
+        "rest",
+        ms(rest),
+        100.0 * rest / wall
+    );
     println!("  {:<11} {:>9.2}", "wall", ms(wall));
     println!();
 }

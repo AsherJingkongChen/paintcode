@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+
 use std::simd::prelude::*;
 
-use rayon::prelude::*;
-
-use super::{Canvas, grain};
+use crate::error::{Error, Result};
 use crate::math::gauss::{self, CUTOFF_Q};
 
 /// Lanes: pixels laid at once.
 const L: usize = 8;
 type F = Simd<f32, L>;
+use rayon::prelude::*;
+
+use super::{Canvas, grain};
 
 /// One dab: an anisotropic 2D Gaussian with an opacity, a profile hardness, the paper grain it
 /// meets, and the colour the brush held when it was laid. A coat is a list of these.
@@ -34,10 +36,12 @@ pub struct Dab {
 pub const MAX_PIXELS: usize = 1 << 28;
 
 /// A zeroed buffer, or a message instead of an abort when the memory is not there.
-fn buffer(len: usize, what: &str) -> Result<Vec<f32>, String> {
+fn buffer(len: usize, what: &str) -> Result<Vec<f32>> {
     let mut v = Vec::new();
-    v.try_reserve_exact(len)
-        .map_err(|_| format!("not enough memory for the {what} ({len} floats)"))?;
+    v.try_reserve_exact(len).map_err(|source| Error::Memory {
+        what: format!("the {what} ({len} floats)"),
+        source,
+    })?;
     v.resize(len, 0f32);
     Ok(v)
 }
@@ -104,11 +108,13 @@ pub struct WetCanvas {
     /// Every dab laid so far, in order and in this canvas's pixels, when recording is on.
     pub dabs: Option<Vec<Dab>>,
     grain: HashMap<u64, Vec<f32>>,
+    /// Profiles by the bits of their exponent.
+    profiles: HashMap<u32, gauss::Profile>,
     /// Room for the kernels of the dabs being laid, kept between petals (see [`WetCanvas::rooms`]).
     pub scratch: Vec<f32>,
 }
 
-/// A copy of the paint and the paper; the scratch buffer starts empty again.
+/// A copy of the paint, the paper and the profiles; the scratch buffer starts empty again.
 impl Clone for WetCanvas {
     fn clone(&self) -> Self {
         WetCanvas {
@@ -119,6 +125,7 @@ impl Clone for WetCanvas {
             wet: self.wet.clone(),
             dabs: self.dabs.clone(),
             grain: self.grain.clone(),
+            profiles: self.profiles.clone(),
             scratch: Vec::new(),
         }
     }
@@ -173,22 +180,17 @@ fn lay(alpha: f32, col: [f32; 3], ks: &[f32], rgb: [&mut [f32]; 3], wet: &mut [f
 impl WetCanvas {
     /// A blank canvas. Fails, rather than aborting, when it is larger than [`MAX_PIXELS`] or the
     /// memory cannot be had.
-    pub fn new(
-        width: usize,
-        height: usize,
-        background: [f32; 3],
-        seed: i64,
-    ) -> Result<WetCanvas, String> {
+    pub fn new(width: usize, height: usize, background: [f32; 3], seed: i64) -> Result<WetCanvas> {
         let pixels = width
             .checked_mul(height)
             .filter(|&n| n <= MAX_PIXELS)
             .ok_or_else(|| {
-                format!(
+                Error::Size(format!(
                     "a {width}x{height} canvas is too large: the limit is {MAX_PIXELS} pixels \
                      (16384 x 16384), counted after scale and supersample"
-                )
+                ))
             })?;
-        let plane = |v: f32| -> Result<Vec<f32>, String> {
+        let plane = |v: f32| -> Result<Vec<f32>> {
             let mut p = buffer(pixels, "canvas")?;
             p.fill(v);
             Ok(p)
@@ -206,6 +208,7 @@ impl WetCanvas {
             wet: buffer(pixels, "wetness map")?,
             dabs: None,
             grain: HashMap::new(),
+            profiles: HashMap::new(),
             scratch: Vec::new(),
         })
     }
@@ -262,6 +265,14 @@ impl WetCanvas {
             let field = grain::field(self.width, self.height, self.seed, scale);
             self.grain.insert(key, field);
         }
+    }
+
+    /// Make sure the profile for this hardness exists before footprints read it in parallel.
+    pub fn prepare_profile(&mut self, hardness: f64) {
+        let n = gauss::hardness_exponent(hardness) as f32;
+        self.profiles
+            .entry(n.to_bits())
+            .or_insert_with(|| gauss::Profile::new(n));
     }
 
     fn grain_field(&self, scale: f64) -> &[f32] {
@@ -356,9 +367,11 @@ impl WetCanvas {
         let (sx32, sy32, x32, y32) = (sx as f32, sy as f32, d.x as f32, d.y as f32);
         // u = (dx c + dy s) / sx and v = (-dx s + dy c) / sy, with the divisions done once
         let (ux, vx) = (c / sx32, -s / sy32);
-        let lanes = F::from_array(std::array::from_fn(|j| j as f32));
         let n = gauss::hardness_exponent(d.hardness) as f32;
-        let profile = gauss::Profile::new(n);
+        let profile = self
+            .profiles
+            .get(&n.to_bits())
+            .expect("prepare_profile before footprint");
         let paper = (d.grain > 0.0).then(|| self.grain_field(d.grain_scale));
         // (1.0 - grain) + grain * g, with the float64 brush values rounded to float32 first
         let (g_keep, g_amt) = ((1.0 - d.grain) as f32, d.grain as f32);
@@ -407,28 +420,17 @@ impl WetCanvas {
             });
             let row = &mut room[used..used + len];
             used += len;
-            // the kernel, eight pixels at a time; the last few are a whole eight too, so a
-            // pixel's value does not depend on where its row starts
-            let paper_row = paper.map(|g| &g[py * self.width + cx0..py * self.width + cx1]);
-            for (j, slot) in row.chunks_mut(L).enumerate() {
-                let xs = F::splat((cx0 + j * L) as f32) + lanes;
-                let dx = (xs + F::splat(0.5)) - F::splat(x32);
-                let u = dx * F::splat(ux) + F::splat(u0);
-                let v = dx * F::splat(vx) + F::splat(v0);
+            for (slot, px) in row.iter_mut().zip(cx0..cx1) {
+                let dx = (px as f32 + 0.5) - x32;
+                let u = dx * ux + u0;
+                let v = dx * vx + v0;
                 let q = u * u + v * v;
-                let inside = q.simd_le(F::splat(CUTOFF_Q));
-                let mut k = inside.select(profile.lanes(q), F::splat(0.0));
-                if let Some(g) = paper_row {
-                    k *= F::splat(g_keep) + F::splat(g_amt) * F::load_or_default(&g[j * L..]);
-                }
-                if slot.len() == L {
-                    k.copy_to_slice(slot);
-                } else {
-                    slot.copy_from_slice(&k.as_array()[..slot.len()]);
-                }
-            }
-            // the sums, pixel by pixel in order
-            for (&k, px) in row.iter().zip(cx0..cx1) {
+                let k32 = if q > CUTOFF_Q { 0.0 } else { profile.at(q) };
+                let k = match paper {
+                    Some(g) => k32 * (g_keep + g_amt * g[py * self.width + px]),
+                    None => k32,
+                };
+                *slot = k;
                 wsum += k as f64;
                 if let Some(src) = src {
                     let i = (py - src.oy) * src.w + (px - src.ox);

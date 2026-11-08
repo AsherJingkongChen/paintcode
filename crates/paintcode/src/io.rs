@@ -18,7 +18,7 @@ use serde_json::Value;
 use crate::flower::Flower;
 use crate::render::{Canvas, Coat, Dab, MAX_PIXELS};
 
-pub type Result<T> = std::result::Result<T, String>;
+use crate::error::{Error, Result};
 
 // --------------------------------------------------------------------------------------- PNG
 
@@ -52,24 +52,21 @@ pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
     out
 }
 
-fn read_flower_chunk(info: &png::Info) -> Result<Option<String>> {
+fn decode_flower_chunk(info: &png::Info) -> Result<Option<String>> {
     let Some(chunk) = info.utf8_text.iter().find(|c| c.keyword == FLOWER_KEYWORD) else {
         return Ok(None);
     };
     let mut chunk = chunk.clone();
     chunk
         .decompress_text_with_limit(FLOWER_LIMIT)
-        .map_err(|e| format!("the flower on this PNG is unreadable: {e}"))?;
-    chunk
-        .get_text()
-        .map(Some)
-        .map_err(|e| format!("the flower on this PNG is unreadable: {e}"))
+        .map_err(Error::FlowerChunk)?;
+    chunk.get_text().map(Some).map_err(Error::FlowerChunk)
 }
 
-fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
+fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
     let mut dec = png::Decoder::new(Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    dec.read_info().map_err(|e| format!("not a PNG: {e}"))
+    Ok(dec.read_info()?)
 }
 
 /// A canvas from a PNG, with the flower on it if there is one. Any PNG works: palette and
@@ -78,35 +75,39 @@ fn open_png(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
 /// image keeps its tones; Pillow instead clips 16-bit grey at 255, which turns most of such an
 /// image white.
 ///
-/// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated.
+/// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated. A flower
+/// that is there but cannot be read is an error: the file has been damaged.
 pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
-    let mut reader = open_png(bytes)?;
+    let mut reader = png_reader(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     if w.saturating_mul(h) > MAX_PIXELS {
-        return Err(format!(
+        return Err(Error::Size(format!(
             "a {w}x{h} PNG is too large: the limit is {MAX_PIXELS} pixels (16384 x 16384)"
-        ));
+        )));
     }
-    let size = reader.output_buffer_size().ok_or("PNG too large")?;
+    let size = reader
+        .output_buffer_size()
+        .ok_or_else(|| Error::File("PNG too large".into()))?;
     let mut buf = Vec::new();
     buf.try_reserve_exact(size)
-        .map_err(|_| format!("not enough memory for a {w}x{h} PNG"))?;
+        .map_err(|source| Error::Memory {
+            what: format!("a {w}x{h} PNG"),
+            source,
+        })?;
     buf.resize(size, 0);
-    let info = reader
-        .next_frame(&mut buf)
-        .map_err(|e| format!("bad PNG: {e}"))?;
+    let info = reader.next_frame(&mut buf)?;
     buf.truncate(info.buffer_size());
     // a flower may also sit after the pixels, if another program wrote the file again
-    let mut flower = read_flower_chunk(reader.info())?;
+    let mut flower = decode_flower_chunk(reader.info())?;
     if flower.is_none() && reader.finish().is_ok() {
-        flower = read_flower_chunk(reader.info())?;
+        flower = decode_flower_chunk(reader.info())?;
     }
     let channels = match info.color_type {
         png::ColorType::Grayscale => 1,
         png::ColorType::GrayscaleAlpha => 2,
         png::ColorType::Rgb => 3,
         png::ColorType::Rgba => 4,
-        png::ColorType::Indexed => return Err("PNG palette was not expanded".into()),
+        png::ColorType::Indexed => return Err(Error::File("PNG palette was not expanded".into())),
     };
     let data = if channels == 3 {
         buf
@@ -159,21 +160,16 @@ pub fn encode_flower(flower: &Flower) -> Vec<u8> {
 }
 
 /// A flower, from a `.flower.json` or from the canvas it is on. A PNG must carry a flower: a
-/// canvas without one is an error, never a guess.
+/// canvas without one is an error, never a guess. A PNG is read as a canvas first, so the flower
+/// is found the one way [`decode_canvas`] finds it.
 pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
-        let mut reader = open_png(bytes)?;
-        match read_flower_chunk(reader.info())? {
-            Some(text) => text,
-            None => {
-                reader.finish().map_err(|e| format!("bad PNG: {e}"))?;
-                read_flower_chunk(reader.info())?.ok_or("no flower on this PNG")?
-            }
-        }
+        decode_canvas(bytes)?.flower.ok_or(Error::NoFlower)?
     } else {
-        String::from_utf8(bytes.to_vec()).map_err(|_| "a flower is UTF-8 JSON")?
+        String::from_utf8(bytes.to_vec())
+            .map_err(|_| Error::File("a flower is UTF-8 JSON".into()))?
     };
-    Flower::from_json(&text).map_err(|e| e.0)
+    Flower::from_json(&text)
 }
 
 // --------------------------------------------------------------------------------------- PLY
@@ -326,16 +322,16 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
         let end = ply[pos..]
             .iter()
             .position(|&b| b == b'\n')
-            .ok_or("PLY header has no end_header")?;
+            .ok_or_else(|| Error::File("PLY header has no end_header".into()))?;
         let s = std::str::from_utf8(&ply[pos..pos + end])
-            .map_err(|_| "PLY header is not UTF-8")?
+            .map_err(|_| Error::File("PLY header is not UTF-8".into()))?
             .trim()
             .to_string();
         pos += end + 1;
         Ok(s)
     };
     if line().ok().as_deref() != Some("ply") {
-        return Err("not a PLY file".into());
+        return Err(Error::File("not a PLY file".into()));
     }
     let (mut names, mut sizes, mut comments) = (Vec::new(), Vec::new(), Vec::new());
     let mut count = 0usize;
@@ -349,26 +345,33 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
             count = n
                 .trim()
                 .parse()
-                .map_err(|_| format!("bad PLY line {l:?}"))?;
+                .map_err(|_| Error::File(format!("bad PLY line {l:?}")))?;
         } else if let Some(p) = l.strip_prefix("property ") {
             let size = match p.split_whitespace().collect::<Vec<_>>()[..] {
                 ["float" | "float32", name] => (4, name),
                 ["double" | "float64", name] => (8, name),
-                _ => return Err(format!("only float and double properties, got {l:?}")),
+                _ => {
+                    return Err(Error::File(format!(
+                        "only float and double properties, got {l:?}"
+                    )));
+                }
             };
             sizes.push(size.0);
             names.push(size.1.to_string());
         } else if l != "format binary_little_endian 1.0" {
-            return Err(format!("unsupported PLY line {l:?}"));
+            return Err(Error::File(format!("unsupported PLY line {l:?}")));
         }
     }
     let stride: usize = sizes.iter().sum();
     let body = &ply[pos..];
     let need = count
         .checked_mul(stride)
-        .ok_or("PLY vertex count is too large")?;
+        .ok_or_else(|| Error::File("PLY vertex count is too large".into()))?;
     if body.len() < need {
-        return Err(format!("PLY is cut short: {} of {need} bytes", body.len()));
+        return Err(Error::File(format!(
+            "PLY is cut short: {} of {need} bytes",
+            body.len()
+        )));
     }
     let mut columns = vec![Vec::with_capacity(count); names.len()];
     for row in body[..need].chunks_exact(stride.max(1)) {
@@ -376,9 +379,9 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
         for (col, &size) in columns.iter_mut().zip(&sizes) {
             let b = &row[at..at + size];
             col.push(if size == 4 {
-                f32::from_le_bytes(b.try_into().unwrap()) as f64
+                f32::from_le_bytes(b.try_into().expect("a float property is 4 bytes")) as f64
             } else {
-                f64::from_le_bytes(b.try_into().unwrap())
+                f64::from_le_bytes(b.try_into().expect("a double property is 8 bytes"))
             });
             at += size;
         }
@@ -398,15 +401,15 @@ pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
         .comments
         .iter()
         .find_map(|c| c.strip_prefix(COAT_COMMENT))
-        .ok_or("this PLY is not a coat: it has no paintcode comment")?;
-    let meta: Value =
-        serde_json::from_str(meta).map_err(|e| format!("bad paintcode comment: {e}"))?;
+        .ok_or_else(|| Error::File("this PLY is not a coat: it has no paintcode comment".into()))?;
+    let meta: Value = serde_json::from_str(meta)
+        .map_err(|e| Error::File(format!("bad paintcode comment: {e}")))?;
     let size = |k: &str| -> Result<usize> {
         meta[k]
             .as_u64()
             .filter(|&v| v >= 1)
             .map(|v| v as usize)
-            .ok_or_else(|| format!("bad {k} in the paintcode comment"))
+            .ok_or_else(|| Error::File(format!("bad {k} in the paintcode comment")))
     };
     let background: [f32; 3] = meta["background"]
         .as_array()
@@ -415,15 +418,15 @@ pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
             let v: Option<Vec<f32>> = a.iter().map(|c| c.as_f64().map(|f| f as f32)).collect();
             v?.try_into().ok()
         })
-        .ok_or("bad background in the paintcode comment")?;
+        .ok_or_else(|| Error::File("bad background in the paintcode comment".into()))?;
     let seed = meta["seed"]
         .as_i64()
-        .ok_or("bad seed in the paintcode comment")?;
+        .ok_or_else(|| Error::File("bad seed in the paintcode comment".into()))?;
     let cols: Vec<&[f64]> = EXACT_FIELDS
         .iter()
         .map(|f| {
             s.column(f)
-                .ok_or_else(|| format!("this PLY is not a coat: it has no {f} field"))
+                .ok_or_else(|| Error::File(format!("this PLY is not a coat: it has no {f} field")))
         })
         .collect::<Result<_>>()?;
     let n = cols[0].len();
@@ -484,7 +487,7 @@ mod tests {
         assert_eq!(decode_flower(&png).unwrap(), flower);
         assert_eq!(decode_flower(text.as_bytes()).unwrap(), flower);
         let bare = encode_canvas(&canvas());
-        assert_eq!(decode_flower(&bare).unwrap_err(), "no flower on this PNG");
+        assert!(matches!(decode_flower(&bare), Err(Error::NoFlower)));
         // the flower is compressed: a thousand petals cost far less than their text
         let long = format!("[{}]", vec![r#"{"points":[[1,2.5]]}"#; 1000].join(","));
         let png = encode_canvas(&Canvas {
@@ -497,7 +500,12 @@ mod tests {
             png.len()
         );
         assert_eq!(decode_canvas(&png).unwrap().flower.unwrap(), long);
-        assert!(decode_flower(b"{nope").unwrap_err().contains("not JSON"));
+        assert!(
+            decode_flower(b"{nope")
+                .unwrap_err()
+                .to_string()
+                .contains("not JSON")
+        );
     }
 
     #[test]
@@ -554,7 +562,10 @@ mod tests {
     #[test]
     fn a_huge_png_header_is_an_error_before_any_allocation() {
         let e = decode_canvas(&png_header(100_000, 100_000)).unwrap_err();
-        assert!(e.contains("100000x100000 PNG is too large"), "{e}");
+        assert!(
+            matches!(&e, Error::Size(m) if m.contains("100000x100000 PNG is too large")),
+            "{e}"
+        );
     }
 
     #[test]
@@ -635,9 +646,52 @@ mod tests {
         let cut = text.find("comment paintcode").unwrap();
         let mut other = ply[..cut].to_vec();
         other.extend_from_slice(&ply[cut + text[cut..].find('\n').unwrap() + 1..]);
-        assert!(decode_coat(&other).unwrap_err().contains("not a coat"));
+        assert!(
+            decode_coat(&other)
+                .unwrap_err()
+                .to_string()
+                .contains("not a coat")
+        );
         assert!(decode_coat(b"plain text").is_err());
         let png = encode_canvas(&canvas());
-        assert_eq!(decode_coat(&png).unwrap_err(), "not a PLY file");
+        assert!(matches!(decode_coat(&png), Err(Error::File(m)) if m == "not a PLY file"));
+    }
+
+    #[test]
+    fn a_broken_png_keeps_the_png_crate_error_as_its_source() {
+        use std::error::Error as _;
+        let e = decode_canvas(b"\x89PNG\r\n\x1a\nnot a header").unwrap_err();
+        assert!(matches!(e, Error::Png(_)), "{e}");
+        assert!(e.source().is_some());
+        let e = crate::flower::Flower::from_json("{nope").unwrap_err();
+        assert!(
+            matches!(e, Error::FlowerJson(_)) && e.source().is_some(),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_broken_flower_is_an_error_naming_the_flower() {
+        let mut c = canvas();
+        c.flower = Some(r#"{"width": 7, "height": 5, "petals": []}"#.into());
+        let mut png = encode_canvas(&c);
+        // iTXt: keyword, NUL, compression flag and method, two empty strings, then zlib data
+        let at = png
+            .windows(4)
+            .position(|w| w == b"iTXt")
+            .expect("an iTXt chunk");
+        let len = u32::from_be_bytes(png[at - 4..at].try_into().expect("4 bytes")) as usize;
+        let data = at + 4;
+        let text = data + FLOWER_KEYWORD.len() + 5;
+        // keep the two-byte zlib header, break the stream after it
+        for b in &mut png[text + 2..data + len] {
+            *b ^= 0x5a;
+        }
+        let crc = crc32_more(crc32(b"iTXt"), &png[data..data + len]);
+        png[data + len..data + len + 4].copy_from_slice(&crc.to_be_bytes());
+        let e = decode_canvas(&png).unwrap_err();
+        assert!(matches!(e, Error::FlowerChunk(_)), "{e}");
+        let e = decode_flower(&png).unwrap_err();
+        assert!(matches!(e, Error::FlowerChunk(_)), "{e}");
     }
 }

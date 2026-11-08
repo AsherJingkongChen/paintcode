@@ -1,6 +1,7 @@
 //! A coat: every dab of a flower in the order it was laid, and what it takes to lay them again.
 
 use super::{Dab, Footprint, Spans, WetCanvas};
+use crate::error::Result;
 
 /// All the dabs of a painted flower, in order, with the colour each one carried.
 ///
@@ -23,7 +24,7 @@ pub struct Coat {
 const BATCH: usize = 4096;
 
 /// Lay every dab on a fresh canvas and box-filter it down: the canvas this coat makes, still wet.
-pub fn lay_coat(coat: &Coat) -> Result<WetCanvas, String> {
+pub fn lay_coat(coat: &Coat) -> Result<WetCanvas> {
     let ss = coat.supersample.max(1);
     let mut canvas = WetCanvas::new(
         coat.width.saturating_mul(ss),
@@ -37,6 +38,7 @@ pub fn lay_coat(coat: &Coat) -> Result<WetCanvas, String> {
         if d.grain > 0.0 {
             canvas.prepare_grain(d.grain_scale);
         }
+        canvas.prepare_profile(d.hardness);
     }
     let mut scratch = Vec::new();
     for batch in coat.dabs.chunks(BATCH) {

@@ -37,12 +37,8 @@ fn chunking_and_snapshots_do_not_change_pixels() {
 #[test]
 fn errors_name_the_petal() {
     let bad = r##"{"width": 10, "height": 10, "petals": [{"brush": "ink", "points": [[1, 1]]}, {"brush": "ink", "sise": 3, "points": [[1, 1]]}]}"##;
-    let e = Flower::from_json(bad).unwrap_err();
-    assert!(
-        e.0.starts_with("petal 1:") && e.0.contains("sise"),
-        "{}",
-        e.0
-    );
+    let e = Flower::from_json(bad).unwrap_err().to_string();
+    assert!(e.starts_with("petal 1:") && e.contains("sise"), "{e}");
 }
 
 #[test]

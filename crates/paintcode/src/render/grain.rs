@@ -38,9 +38,9 @@ fn coeffs(in_size: usize, out_size: usize, count: usize) -> (usize, Vec<(usize, 
         let xmax = ((center + support + 0.5) as i64).min(in_size as i64) as usize - xmin;
         let k = &mut kk[xx * ksize..(xx + 1) * ksize];
         let mut ww = 0.0;
-        for x in 0..xmax {
+        for (x, slot) in k.iter_mut().enumerate().take(xmax) {
             let w = bicubic((x as f64 + xmin as f64 - center + 0.5) * ss);
-            k[x] = w;
+            *slot = w;
             ww += w;
         }
         if ww != 0.0 {
@@ -127,7 +127,10 @@ fn percentile(sorted_pick: &mut [f32], q: f64) -> f64 {
     let b = if hi == lo {
         a
     } else {
-        *rest.iter().min_by(|x, y| x.total_cmp(y)).unwrap()
+        *rest
+            .iter()
+            .min_by(|x, y| x.total_cmp(y))
+            .expect("hi is lo + 1 < n, so a value lies above the lo-th")
     };
     let diff = (b - a) as f64; // subtract(b, a) happens in float32
     if gamma >= 0.5 {

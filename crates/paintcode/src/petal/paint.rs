@@ -155,6 +155,7 @@ pub fn paint_planned(
         if brush.grain > 0.0 {
             canvas.prepare_grain(brush.grain_scale);
         }
+        canvas.prepare_profile(brush.hardness);
     });
     let mut carried: [f32; 3] = match color {
         Color::Rgb(c) => *c,
@@ -194,10 +195,9 @@ pub fn paint_planned(
     let snapshot = (pickup && chunks.len() > 1).then(|| {
         time(Stage::Snapshot, || {
             let b = plans.iter().filter_map(|p| canvas.bounds(&p.dab));
-            let (x0, x1, y0, y1) =
-                b.fold((usize::MAX, 0, usize::MAX, 0), |a, (x0, x1, y0, y1)| {
-                    (a.0.min(x0), a.1.max(x1), a.2.min(y0), a.3.max(y1))
-                });
+            let (x0, x1, y0, y1) = b.fold((usize::MAX, 0, usize::MAX, 0), |a, (x0, x1, y0, y1)| {
+                (a.0.min(x0), a.1.max(x1), a.2.min(y0), a.3.max(y1))
+            });
             canvas.snapshot(x0, y0, x1, y1)
         })
     });

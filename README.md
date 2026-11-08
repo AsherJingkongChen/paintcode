@@ -6,6 +6,14 @@ A flower is what you write: a size, a background and petals (strokes of any shap
 Painting turns each petal into dabs; all the dabs together are the coat.
 The coat over the background is the canvas, the pixels you see.
 
+The nouns are the stages of a painting, each made from the one above it, and every name in the API is one of them. One is a single thing; many is the collection of them. File formats may change; these names do not.
+
+| one | many | stage | kept as |
+|---|---|---|---|
+| petal | flower | what you write | `.flower.json`, or on a `.flower.png` |
+| dab | coat | what painting lays | `.coat.ply` |
+| pixel | canvas | what you see | `.png`, with its flower as `.flower.png` |
+
 A petal is a list of control points with pressure and tilt; the engine resamples it along its arc length and lays down a row of dabs, each an **anisotropic 2D Gaussian**. Every mark you see is made of splats.
 
 It was written so a language model can paint with its own strokes: the model writes a compact JSON flower, the engine paints it deterministically, and the model looks at the canvas and decides the next petals.
@@ -47,7 +55,7 @@ canvas = pc.load_canvas("sketch.flower.png")                 # only the pixels
 canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
 ```
 
-The API is functions over data: each noun is a stage of a painting, a function takes one stage to the next, and nothing keeps state between calls. `_to_` turns one thing into another, `_on_` and `_off_` put a flower on a canvas and take it off, `load_` takes the path of a file, and `save_` takes a pathname, adds the suffix of what it writes and returns the path written; the files are read and written in Rust. A function with more than one parameter takes them by keyword. Mistakes raise `ValueError` with a message that names the petal, the field or the file. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own. There is no command line: the engine is a library, and Python (later JavaScript) is how it is driven.
+The API is functions over data: each noun is a stage of a painting, a function takes one stage to the next, and nothing keeps state between calls. `_to_` turns one thing into another, `_on_` and `_off_` put a flower on a canvas and take it off, `load_` takes the path of a file, and `save_` takes a pathname, adds the suffix of what it writes and returns the path written; the files are read and written in Rust. A function with more than one parameter takes them by keyword. Mistakes raise `ValueError` with a message that names the petal, the field or the file, or the size of a canvas past its limit; only memory that is not there raises `MemoryError`. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own. There is no command line: the engine is a library, and Python (later JavaScript) is how it is driven.
 
 | file | what it is |
 |---|---|
@@ -154,12 +162,13 @@ The engine is Rust: one library, `crates/paintcode`, with one module per part of
 
 | module | part | may use | does |
 |---|---|---|---|
+| `error` | leaf | nothing | every way paintcode fails, as one enum |
 | `profile` | leaf | nothing | stage timers, empty unless built with the `profile` feature |
 | `math` | leaf | nothing | counter-based RNG, dab profile and geometry |
-| `flower` | bones | math | flower, petal and brush types, brushes, colours |
-| `render` | render | math | dabs to pixels, coats, paper grain, downsampling |
+| `flower` | bones | error, math | flower, petal and brush types, brushes, colours |
+| `render` | render | error, math | dabs to pixels, coats, paper grain, downsampling |
 | `petal` | flesh | profile, math, flower, render | control points to dabs, carrying paint |
-| `io` | files | render | encoders and decoders, in pairs: flower JSON, PNG, PLY |
+| `io` | files | error, flower, render | encoders and decoders, in pairs: flower JSON, PNG, PLY |
 
 Up to 0.4 a numpy engine in this package was the reference, and the core was checked against it at 1e-5 on the float canvas (2.4e-7 at worst on kiku). 0.5 retired it: its output for the examples and a feature matrix is frozen in `tests/golden/`, and the core is checked against those files.
 

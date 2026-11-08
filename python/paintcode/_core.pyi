@@ -21,7 +21,8 @@ The files: a flower is a .flower.json, or rides on its canvas as a .flower.png; 
 .png; a coat is a .coat.ply. A load_ takes the path of a file and tells formats apart by its bytes,
 not its name; a save_ takes a pathname, the path without a suffix, adds the suffix of what it
 writes and returns the path written. A mistake in a
-flower or a file is a ValueError that names the petal or the path.
+flower or a file is a ValueError that names the petal or the path, or the size
+of a canvas past its limit; only memory that is not there is a MemoryError.
 
 A function with more than one parameter takes them by keyword only.
 """
@@ -82,7 +83,8 @@ def save_flower(*, flower: Flower, pathname: Path) -> pathlib.Path:
 
 def load_canvas(path: Path) -> Canvas:
     """The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes
-    the flower). Any PNG opens: grey, palette, alpha and 16-bit images become 8-bit RGB."""
+    the flower). A flower that is there but damaged is an error. Any PNG opens: grey, palette,
+    alpha and 16-bit images become 8-bit RGB."""
 
 def save_canvas(*, canvas: Canvas, pathname: Path) -> pathlib.Path:
     """Write a canvas as a PNG at pathname.png, or with its flower on it at pathname.flower.png."""

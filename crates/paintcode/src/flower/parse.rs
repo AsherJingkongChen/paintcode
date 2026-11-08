@@ -46,15 +46,14 @@ const PETAL_KEYS: [&str; 6] = ["brush", "color", "points", "smooth", "id", "grou
 
 impl Flower {
     pub fn from_json(text: &str) -> Result<Flower> {
-        let v: Value =
-            serde_json::from_str(text).map_err(|e| Error(format!("flower is not JSON: {e}")))?;
+        let v: Value = serde_json::from_str(text)?;
         Flower::from_value(&v)
     }
 
     pub fn from_value(v: &Value) -> Result<Flower> {
         let root = v
             .as_object()
-            .ok_or_else(|| Error("a flower is a JSON object".into()))?;
+            .ok_or_else(|| Error::Flower("a flower is a JSON object".into()))?;
         for k in root.keys() {
             if !FLOWER_KEYS.contains(&k.as_str()) {
                 return err(match k.as_str() {
@@ -80,9 +79,11 @@ impl Flower {
                         .filter(|f| f.fract() == 0.0 && f.abs() < 9e15)
                         .map(|f| f as i64)
                 })
-                .ok_or_else(|| Error(format!("{k} must be a whole number, got {v}")))?;
+                .ok_or_else(|| Error::Flower(format!("{k} must be a whole number, got {v}")))?;
             if n < min {
-                return Err(Error(format!("{k} must be at least {min}, got {v}")));
+                return Err(Error::Flower(format!(
+                    "{k} must be at least {min}, got {v}"
+                )));
             }
             Ok(n)
         };
@@ -99,7 +100,8 @@ impl Flower {
             for (name, spec) in bs {
                 named.insert(
                     name,
-                    Brush::from_spec(spec).map_err(|e| Error(format!("brush {name}: {e}")))?,
+                    Brush::from_spec(spec)
+                        .map_err(|e| Error::Flower(format!("brush {name}: {e}")))?,
                 );
             }
         }
@@ -113,14 +115,16 @@ impl Flower {
             .iter()
             .enumerate()
         {
-            petals.push(parse_petal(s, &named).map_err(|e| Error(format!("petal {idx}: {e}")))?);
+            petals.push(
+                parse_petal(s, &named).map_err(|e| Error::Flower(format!("petal {idx}: {e}")))?,
+            );
         }
         let mut ids: HashMap<&str, usize> = HashMap::new();
         for (idx, p) in petals.iter().enumerate() {
-            if let Some(id) = p.id.as_deref() {
-                if let Some(first) = ids.insert(id, idx) {
-                    return err(format!("petal {idx}: id {id:?} is petal {first}'s already"));
-                }
+            if let Some(id) = p.id.as_deref()
+                && let Some(first) = ids.insert(id, idx)
+            {
+                return err(format!("petal {idx}: id {id:?} is petal {first}'s already"));
             }
         }
         Ok(Flower {
@@ -178,7 +182,7 @@ impl Petal {
 fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
     let s = s
         .as_object()
-        .ok_or_else(|| Error("a petal is a JSON object".into()))?;
+        .ok_or_else(|| Error::Flower("a petal is a JSON object".into()))?;
     let round = Value::String("round".into());
     let r = s.get("brush").unwrap_or(&round);
     let mut brush = match r {
@@ -201,14 +205,14 @@ fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
     let pts = s
         .get("points")
         .and_then(Value::as_array)
-        .ok_or_else(|| Error("petal has no points".into()))?;
+        .ok_or_else(|| Error::Flower("petal has no points".into()))?;
     let mut points = Vec::with_capacity(pts.len());
     for pt in pts {
         let a = pt
             .as_array()
             .filter(|a| (2..=4).contains(&a.len()))
             .ok_or_else(|| {
-                Error(format!(
+                Error::Flower(format!(
                     "point must be [x, y], [x, y, p] or [x, y, p, tilt], got {pt}"
                 ))
             })?;
@@ -216,7 +220,7 @@ fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
         for (o, v) in row.iter_mut().zip(a) {
             *o = v
                 .as_f64()
-                .ok_or_else(|| Error(format!("point values must be numbers, got {pt}")))?;
+                .ok_or_else(|| Error::Flower(format!("point values must be numbers, got {pt}")))?;
         }
         points.push(row);
     }
@@ -227,7 +231,9 @@ fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
         match s.get(k) {
             None => Ok(None),
             Some(Value::String(t)) if !t.is_empty() => Ok(Some(t.clone())),
-            Some(v) => Err(Error(format!("{k} must be a non-empty string, got {v}"))),
+            Some(v) => Err(Error::Flower(format!(
+                "{k} must be a non-empty string, got {v}"
+            ))),
         }
     };
     let (id, group) = (name("id")?, name("group")?);
@@ -235,7 +241,7 @@ fn parse_petal(s: &Value, named: &HashMap<&str, Brush>) -> Result<Petal> {
         None => true,
         Some(v) => v
             .as_bool()
-            .ok_or_else(|| Error(format!("smooth must be true or false, got {v}")))?,
+            .ok_or_else(|| Error::Flower(format!("smooth must be true or false, got {v}")))?,
     };
     Ok(Petal {
         brush,
