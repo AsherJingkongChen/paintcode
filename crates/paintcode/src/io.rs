@@ -20,10 +20,6 @@ use crate::render::{Canvas, Coat, Dab, MAX_PIXELS};
 
 use crate::error::{Error, Result};
 
-fn file_error(msg: impl Into<String>) -> Error {
-    Error::File(msg.into())
-}
-
 // --------------------------------------------------------------------------------------- PNG
 
 /// The iTXt keyword a flower sits under on a canvas.
@@ -91,7 +87,7 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
     }
     let size = reader
         .output_buffer_size()
-        .ok_or_else(|| file_error("PNG too large"))?;
+        .ok_or_else(|| Error::File("PNG too large".into()))?;
     let mut buf = Vec::new();
     buf.try_reserve_exact(size)
         .map_err(|source| Error::Memory {
@@ -111,7 +107,7 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
         png::ColorType::GrayscaleAlpha => 2,
         png::ColorType::Rgb => 3,
         png::ColorType::Rgba => 4,
-        png::ColorType::Indexed => return Err(file_error("PNG palette was not expanded")),
+        png::ColorType::Indexed => return Err(Error::File("PNG palette was not expanded".into())),
     };
     let data = if channels == 3 {
         buf
@@ -170,7 +166,8 @@ pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
         decode_canvas(bytes)?.flower.ok_or(Error::NoFlower)?
     } else {
-        String::from_utf8(bytes.to_vec()).map_err(|_| file_error("a flower is UTF-8 JSON"))?
+        String::from_utf8(bytes.to_vec())
+            .map_err(|_| Error::File("a flower is UTF-8 JSON".into()))?
     };
     Flower::from_json(&text)
 }
@@ -325,16 +322,16 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
         let end = ply[pos..]
             .iter()
             .position(|&b| b == b'\n')
-            .ok_or_else(|| file_error("PLY header has no end_header"))?;
+            .ok_or_else(|| Error::File("PLY header has no end_header".into()))?;
         let s = std::str::from_utf8(&ply[pos..pos + end])
-            .map_err(|_| file_error("PLY header is not UTF-8"))?
+            .map_err(|_| Error::File("PLY header is not UTF-8".into()))?
             .trim()
             .to_string();
         pos += end + 1;
         Ok(s)
     };
     if line().ok().as_deref() != Some("ply") {
-        return Err(file_error("not a PLY file"));
+        return Err(Error::File("not a PLY file".into()));
     }
     let (mut names, mut sizes, mut comments) = (Vec::new(), Vec::new(), Vec::new());
     let mut count = 0usize;
@@ -348,13 +345,13 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
             count = n
                 .trim()
                 .parse()
-                .map_err(|_| file_error(format!("bad PLY line {l:?}")))?;
+                .map_err(|_| Error::File(format!("bad PLY line {l:?}")))?;
         } else if let Some(p) = l.strip_prefix("property ") {
             let size = match p.split_whitespace().collect::<Vec<_>>()[..] {
                 ["float" | "float32", name] => (4, name),
                 ["double" | "float64", name] => (8, name),
                 _ => {
-                    return Err(file_error(format!(
+                    return Err(Error::File(format!(
                         "only float and double properties, got {l:?}"
                     )));
                 }
@@ -362,16 +359,16 @@ pub(crate) fn decode_ply(ply: &[u8]) -> Result<Ply> {
             sizes.push(size.0);
             names.push(size.1.to_string());
         } else if l != "format binary_little_endian 1.0" {
-            return Err(file_error(format!("unsupported PLY line {l:?}")));
+            return Err(Error::File(format!("unsupported PLY line {l:?}")));
         }
     }
     let stride: usize = sizes.iter().sum();
     let body = &ply[pos..];
     let need = count
         .checked_mul(stride)
-        .ok_or_else(|| file_error("PLY vertex count is too large"))?;
+        .ok_or_else(|| Error::File("PLY vertex count is too large".into()))?;
     if body.len() < need {
-        return Err(file_error(format!(
+        return Err(Error::File(format!(
             "PLY is cut short: {} of {need} bytes",
             body.len()
         )));
@@ -404,15 +401,15 @@ pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
         .comments
         .iter()
         .find_map(|c| c.strip_prefix(COAT_COMMENT))
-        .ok_or_else(|| file_error("this PLY is not a coat: it has no paintcode comment"))?;
+        .ok_or_else(|| Error::File("this PLY is not a coat: it has no paintcode comment".into()))?;
     let meta: Value = serde_json::from_str(meta)
-        .map_err(|e| file_error(format!("bad paintcode comment: {e}")))?;
+        .map_err(|e| Error::File(format!("bad paintcode comment: {e}")))?;
     let size = |k: &str| -> Result<usize> {
         meta[k]
             .as_u64()
             .filter(|&v| v >= 1)
             .map(|v| v as usize)
-            .ok_or_else(|| file_error(format!("bad {k} in the paintcode comment")))
+            .ok_or_else(|| Error::File(format!("bad {k} in the paintcode comment")))
     };
     let background: [f32; 3] = meta["background"]
         .as_array()
@@ -421,15 +418,15 @@ pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
             let v: Option<Vec<f32>> = a.iter().map(|c| c.as_f64().map(|f| f as f32)).collect();
             v?.try_into().ok()
         })
-        .ok_or_else(|| file_error("bad background in the paintcode comment"))?;
+        .ok_or_else(|| Error::File("bad background in the paintcode comment".into()))?;
     let seed = meta["seed"]
         .as_i64()
-        .ok_or_else(|| file_error("bad seed in the paintcode comment"))?;
+        .ok_or_else(|| Error::File("bad seed in the paintcode comment".into()))?;
     let cols: Vec<&[f64]> = EXACT_FIELDS
         .iter()
         .map(|f| {
             s.column(f)
-                .ok_or_else(|| file_error(format!("this PLY is not a coat: it has no {f} field")))
+                .ok_or_else(|| Error::File(format!("this PLY is not a coat: it has no {f} field")))
         })
         .collect::<Result<_>>()?;
     let n = cols[0].len();
