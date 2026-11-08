@@ -80,23 +80,8 @@ fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
 /// image white.
 ///
 /// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated. A flower
-/// that is there but cannot be read is left off: the pixels are still the canvas, and
-/// [`decode_flower`] is where its error is told.
+/// that is there but cannot be read is an error: the file has been damaged.
 pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
-    let Decoded { mut canvas, flower } = decode_png(bytes)?;
-    canvas.flower = flower.ok().flatten();
-    Ok(canvas)
-}
-
-/// A PNG read: its pixels as a canvas without the flower, and apart from them, what reading the
-/// flower gave, so a broken flower costs [`decode_canvas`] nothing and [`decode_flower`] its error.
-struct Decoded {
-    canvas: Canvas,
-    /// `Ok(None)` when the PNG carries no flower, an error when it carries one that cannot be read.
-    flower: Result<Option<String>>,
-}
-
-fn decode_png(bytes: &[u8]) -> Result<Decoded> {
     let mut reader = png_reader(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     if w.saturating_mul(h) > MAX_PIXELS {
@@ -117,10 +102,10 @@ fn decode_png(bytes: &[u8]) -> Result<Decoded> {
     let info = reader.next_frame(&mut buf)?;
     buf.truncate(info.buffer_size());
     // a flower may also sit after the pixels, if another program wrote the file again
-    let flower = match decode_flower_chunk(reader.info()) {
-        Ok(None) if reader.finish().is_ok() => decode_flower_chunk(reader.info()),
-        found => found,
-    };
+    let mut flower = decode_flower_chunk(reader.info())?;
+    if flower.is_none() && reader.finish().is_ok() {
+        flower = decode_flower_chunk(reader.info())?;
+    }
     let channels = match info.color_type {
         png::ColorType::Grayscale => 1,
         png::ColorType::GrayscaleAlpha => 2,
@@ -141,13 +126,12 @@ fn decode_png(bytes: &[u8]) -> Result<Decoded> {
             })
             .collect()
     };
-    let canvas = Canvas {
+    Ok(Canvas {
         width: info.width as usize,
         height: info.height as usize,
         pixels: data,
-        flower: None,
-    };
-    Ok(Decoded { canvas, flower })
+        flower,
+    })
 }
 
 // ------------------------------------------------------------------------------------ flower
@@ -184,7 +168,7 @@ pub fn encode_flower(flower: &Flower) -> Vec<u8> {
 /// is found the one way [`decode_canvas`] finds it.
 pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
-        decode_png(bytes)?.flower?.ok_or(Error::NoFlower)?
+        decode_canvas(bytes)?.flower.ok_or(Error::NoFlower)?
     } else {
         String::from_utf8(bytes.to_vec()).map_err(|_| file_error("a flower is UTF-8 JSON"))?
     };
@@ -690,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn a_broken_flower_leaves_the_pixels_and_is_told_when_asked_for() {
+    fn a_broken_flower_is_an_error_naming_the_flower() {
         let mut c = canvas();
         c.flower = Some(r#"{"width": 7, "height": 5, "petals": []}"#.into());
         let mut png = encode_canvas(&c);
@@ -708,9 +692,8 @@ mod tests {
         }
         let crc = crc32_more(crc32(b"iTXt"), &png[data..data + len]);
         png[data + len..data + len + 4].copy_from_slice(&crc.to_be_bytes());
-        let back = decode_canvas(&png).unwrap();
-        assert_eq!(back.pixels, c.pixels);
-        assert_eq!(back.flower, None);
+        let e = decode_canvas(&png).unwrap_err();
+        assert!(matches!(e, Error::FlowerChunk(_)), "{e}");
         let e = decode_flower(&png).unwrap_err();
         assert!(matches!(e, Error::FlowerChunk(_)), "{e}");
     }

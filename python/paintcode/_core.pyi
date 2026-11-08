@@ -83,7 +83,8 @@ def save_flower(*, flower: Flower, pathname: Path) -> pathlib.Path:
 
 def load_canvas(path: Path) -> Canvas:
     """The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes
-    the flower). Any PNG opens: grey, palette, alpha and 16-bit images become 8-bit RGB."""
+    the flower). A flower that is there but damaged is an error. Any PNG opens: grey, palette,
+    alpha and 16-bit images become 8-bit RGB."""
 
 def save_canvas(*, canvas: Canvas, pathname: Path) -> pathlib.Path:
     """Write a canvas as a PNG at pathname.png, or with its flower on it at pathname.flower.png."""

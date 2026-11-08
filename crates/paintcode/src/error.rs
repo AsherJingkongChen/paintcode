@@ -20,7 +20,7 @@ pub enum Error {
     #[error("bad PNG: {0}")]
     Png(#[from] png::DecodingError),
     /// A flower on a PNG that cannot be read: its compressed text is broken, longer than 64 MiB
-    /// or not UTF-8. The pixels around it are still a canvas.
+    /// or not UTF-8. The file has been damaged; the error says it is the flower.
     #[error("the flower on this PNG is unreadable: {0}")]
     FlowerChunk(#[source] png::DecodingError),
     /// A canvas larger than the limit on one: 2^28 pixels, counted after scale and supersample.
