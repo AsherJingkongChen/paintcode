@@ -3,9 +3,6 @@
 //! paint: the example flowers on one thread and on every core. Throughput is in dabs, so flowers
 //! of different sizes compare, and criterion compares each run with the one before it.
 //!
-//! again: kiku painted again by a Painting that holds it without its last petal (append), or
-//! with one petal more (take back), against painting it from the start.
-//!
 //! loop: the rest of an agent's round with kiku, on one thread, step by step: the flower's JSON
 //! read and written, the wet canvas dried to 8 bits, and the canvas encoded as a PNG with and
 //! without its flower on it, and decoded.
@@ -17,7 +14,7 @@ use criterion::{
     BatchSize, BenchmarkId, Criterion, SamplingMode, Throughput, criterion_group, criterion_main,
 };
 use paintcode::{
-    Flower, Painting, RenderOpts, decode_canvas, decode_flower, encode_canvas, encode_flower,
+    Flower, RenderOpts, decode_canvas, decode_flower, encode_canvas, encode_flower,
     flower_on_canvas, flower_to_coat, paint_flower,
 };
 
@@ -80,41 +77,6 @@ fn paint(c: &mut Criterion) {
     group.finish();
 }
 
-fn again(c: &mut Criterion) {
-    let mut group = c.benchmark_group("again");
-    group.sample_size(SAMPLES);
-    let kiku = load("examples/kiku.flower.json");
-    let mut less = kiku.clone();
-    less.petals.pop();
-    let mut more = kiku.clone();
-    more.petals.push(kiku.petals[0].clone());
-    for supersample in [1, 2] {
-        let opts = RenderOpts {
-            supersample,
-            ..RenderOpts::default()
-        };
-        let held = |f: &Flower| {
-            let mut p = Painting::new();
-            p.paint_flower(f, &opts).unwrap();
-            p
-        };
-        for (name, from) in [("append", held(&less)), ("take_back", held(&more))] {
-            let name = format!("{name}_ss{supersample}");
-            for n in threads() {
-                let pool = pool(n);
-                group.bench_function(BenchmarkId::new(&name, n), |b| {
-                    b.iter_batched(
-                        || from.clone(),
-                        |mut p| pool.install(|| black_box(p.paint_flower(&kiku, &opts).unwrap())),
-                        BatchSize::PerIteration,
-                    )
-                });
-            }
-        }
-    }
-    group.finish();
-}
-
 fn round(c: &mut Criterion) {
     let mut group = c.benchmark_group("loop");
     let text = std::fs::read(
@@ -157,5 +119,5 @@ fn round(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, paint, again, round);
+criterion_group!(benches, paint, round);
 criterion_main!(benches);
