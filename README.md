@@ -58,14 +58,20 @@ canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
 
 Files are told apart by their bytes, not their names: `load_flower` reads JSON, or the flower on a PNG (a PNG without one is an error); `load_canvas` takes any PNG and only its pixels.
 
-The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. A petal is its index unless it has an `id` or a `group`; with one, taking a petal out of the middle leaves the others as they were. To keep working on a painting, load its flower, append petals and paint it again. A `Painting` remembers where it stopped, so painting again paints only the new petals, and taking back the last petal, or the petals just appended, costs only a copy; it keeps two float canvases at the painted size to do it:
+The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. A petal is its index unless it has an `id` or a `group`; with one, taking a petal out of the middle leaves the others as they were.
+
+A painter works in versions, one run of a program each: the program writes the flower, paints it once at the end and saves the flower on its canvas, and the painter looks at the picture between runs. So the one `.flower.png` is both the picture to look at and the record to go on from. To keep working, load the flower from it, append petals and paint again:
 
 ```python
-painting = pc.Painting()
-canvas = painting.flower_to_canvas(flower=flower, supersample=2)
+flower = pc.load_flower("sketch.flower.png")
 flower["petals"].append({"brush": "ink", "color": "#223", "points": [[60, 40], [340, 60]]})
-canvas = painting.flower_to_canvas(flower=flower, supersample=2)   # paints one petal
+canvas = pc.flower_to_canvas(flower=flower, supersample=2)
+pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathname="sketch")
 ```
+
+The flower is all there is to keep: the coat and the canvas come from it.
+
+Version 0.8 paints the same pixels as 0.7. `Painting` is gone: a version is painted once, so there was nothing for it to remember between paints.
 
 Version 0.7 paints the same pixels as 0.6, but for two changes. A smudge that starts off the canvas loads the colour where it meets the canvas, where it loaded black (in kiku, one blender petal, 1,464 pixels by up to 24/255). The dab profile is read from a table per hardness instead of `powf` and `exp`, 25% faster on one thread, at most 1.1e-4 off the formula (2 of kiku's 1,228,800 values move by 1/255). It adds `Painting`, which paints only the petals a flower gained since the last paint, and the petal keys `id` and `group`, which keep a petal's jitter when others are taken out; a flower without them paints as before.
 
