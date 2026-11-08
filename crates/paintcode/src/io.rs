@@ -40,6 +40,7 @@ pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
         let mut enc = png::Encoder::new(&mut out, canvas.width as u32, canvas.height as u32);
         enc.set_color(png::ColorType::Rgb);
         enc.set_depth(png::BitDepth::Eight);
+        enc.set_compression(png::Compression::Fast);
         let mut w = enc.write_header().expect("PNG header");
         if let Some(text) = &canvas.flower {
             let mut chunk = png::text_metadata::ITXtChunk::new(FLOWER_KEYWORD, text.as_str());

@@ -52,7 +52,7 @@ canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
 | file | what it is |
 |---|---|
 | `.flower.json` | a flower, one petal per line |
-| `.png` | a canvas, 8-bit RGB |
+| `.png` | a canvas, 8-bit RGB, written with png's fast setting: three times the default's speed at about its size |
 | `.flower.png` | a canvas with its flower on it, in a compressed iTXt chunk; any image viewer shows the canvas |
 | `.coat.ply` | every dab as a flat 3D Gaussian in the 3D Gaussian Splatting layout, readable by splat viewers, and kept exactly |
 
