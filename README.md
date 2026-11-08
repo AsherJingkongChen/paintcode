@@ -6,6 +6,14 @@ A flower is what you write: a size, a background and petals (strokes of any shap
 Painting turns each petal into dabs; all the dabs together are the coat.
 The coat over the background is the canvas, the pixels you see.
 
+The nouns are the stages of a painting, each made from the one above it, and every name in the API is one of them. One is a single thing; many is the collection of them. File formats may change; these names do not.
+
+| one | many | stage | kept as |
+|---|---|---|---|
+| petal | flower | what you write | `.flower.json`, or on a `.flower.png` |
+| dab | coat | what painting lays | `.coat.ply` |
+| pixel | canvas | what you see | `.png`, with its flower as `.flower.png` |
+
 A petal is a list of control points with pressure and tilt; the engine resamples it along its arc length and lays down a row of dabs, each an **anisotropic 2D Gaussian**. Every mark you see is made of splats.
 
 It was written so a language model can paint with its own strokes: the model writes a compact JSON flower, the engine paints it deterministically, and the model looks at the canvas and decides the next petals.

@@ -83,14 +83,20 @@ fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
 /// that is there but cannot be read is left off: the pixels are still the canvas, and
 /// [`decode_flower`] is where its error is told.
 pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
-    let (mut canvas, flower) = decode_png(bytes)?;
+    let Decoded { mut canvas, flower } = decode_png(bytes)?;
     canvas.flower = flower.ok().flatten();
     Ok(canvas)
 }
 
-/// The pixels of a PNG as a canvas without its flower, and apart from them, what reading the
-/// flower gave: so a broken flower costs [`decode_canvas`] nothing and [`decode_flower`] its error.
-fn decode_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
+/// A PNG read: its pixels as a canvas without the flower, and apart from them, what reading the
+/// flower gave, so a broken flower costs [`decode_canvas`] nothing and [`decode_flower`] its error.
+struct Decoded {
+    canvas: Canvas,
+    /// `Ok(None)` when the PNG carries no flower, an error when it carries one that cannot be read.
+    flower: Result<Option<String>>,
+}
+
+fn decode_png(bytes: &[u8]) -> Result<Decoded> {
     let mut reader = png_reader(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);
     if w.saturating_mul(h) > MAX_PIXELS {
@@ -141,7 +147,7 @@ fn decode_png(bytes: &[u8]) -> Result<(Canvas, Result<Option<String>>)> {
         pixels: data,
         flower: None,
     };
-    Ok((canvas, flower))
+    Ok(Decoded { canvas, flower })
 }
 
 // ------------------------------------------------------------------------------------ flower
@@ -178,7 +184,7 @@ pub fn encode_flower(flower: &Flower) -> Vec<u8> {
 /// is found the one way [`decode_canvas`] finds it.
 pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
     let text = if is_png(bytes) {
-        decode_png(bytes)?.1?.ok_or(Error::NoFlower)?
+        decode_png(bytes)?.flower?.ok_or(Error::NoFlower)?
     } else {
         String::from_utf8(bytes.to_vec()).map_err(|_| file_error("a flower is UTF-8 JSON"))?
     };
