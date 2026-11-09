@@ -16,7 +16,9 @@ The nouns are the stages of a painting, each made from the one above it, and eve
 
 A petal is a list of control points with pressure and tilt; the engine resamples it along its arc length and lays down a row of dabs, each an **anisotropic 2D Gaussian**. Every mark you see is made of splats.
 
-It was written so a language model can paint with its own strokes: the model writes a compact JSON flower, the engine paints it deterministically, and the model looks at the canvas and decides the next petals.
+It was written so a language model can paint with its own strokes. The model writes a program; one run of it builds a flower, paints it once and saves the flower on its canvas; the model looks at the canvas and changes the program. The same flower always paints the same pixels.
+
+This file is for painting with it, and ends with the full API. [DESIGN.md](DESIGN.md) is how the engine works, for whoever changes it; [CHANGELOG.md](CHANGELOG.md) is what changed between versions.
 
 ![A yellow chrysanthemum at dusk](examples/kiku.png)
 
@@ -39,36 +41,11 @@ flower = {"width": 400, "height": 200, "background": "#f4efe6", "seed": 1,
                      {"brush": "filbert", "size": 12, "color": [200, 120, 40],
                       "points": [[20, 170, 0.3], [200, 165, 1], [380, 175, 0.2]]}]}
 
-canvas = pc.flower_to_canvas(flower=flower)                  # the pixels
-canvas = pc.flower_to_canvas(flower=flower, scale=2)         # coordinates and brush sizes scale together
-canvas = pc.flower_to_canvas(flower=flower, supersample=3)   # supersample hard edges
-coat = pc.flower_to_coat(flower=flower)                      # every dab; same options
-canvas = pc.coat_to_canvas(coat)                             # the same canvas, bit for bit
-
-pc.save_flower(flower=flower, pathname="sketch")            # sketch.flower.json
-pc.save_canvas(canvas=canvas, pathname="sketch")            # sketch.png
+canvas = pc.flower_to_canvas(flower=flower, supersample=2)
 pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathname="sketch")  # sketch.flower.png
-pc.save_coat(coat=coat, pathname="sketch")                  # sketch.coat.ply
-
-flower = pc.load_flower("sketch.flower.png")                 # the flower, from its file or its canvas
-canvas = pc.load_canvas("sketch.flower.png")                 # only the pixels
-canvas.peek(x=20, y=100, width=5, height=5), canvas.crop(x=0, y=0, width=200, height=100)
 ```
 
-The API is functions over data: each noun is a stage of a painting, a function takes one stage to the next, and nothing keeps state between calls. `_to_` turns one thing into another, `_on_` and `_off_` put a flower on a canvas and take it off, `load_` takes the path of a file, and `save_` takes a pathname, adds the suffix of what it writes and returns the path written; the files are read and written in Rust. A function with more than one parameter takes them by keyword. Mistakes raise `ValueError` with a message that names the petal, the field or the file, or the size of a canvas past its limit; only memory that is not there raises `MemoryError`. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own. There is no command line: the engine is a library, and Python (later JavaScript) is how it is driven.
-
-| file | what it is |
-|---|---|
-| `.flower.json` | a flower, one petal per line |
-| `.png` | a canvas, 8-bit RGB, written with png's fast setting: three times the default's speed at about its size |
-| `.flower.png` | a canvas with its flower on it, in a compressed iTXt chunk; any image viewer shows the canvas |
-| `.coat.ply` | every dab as a flat 3D Gaussian in the 3D Gaussian Splatting layout, readable by splat viewers, and kept exactly |
-
-Files are told apart by their bytes, not their names: `load_flower` reads JSON, or the flower on a PNG (a PNG without one is an error); `load_canvas` takes any PNG and only its pixels.
-
-The same flower always produces the same pixels. Jitter is counter-based: every random number is a hash of (seed, petal, dab index, slot), so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. A petal is its index unless it has an `id` or a `group`; with one, taking a petal out of the middle leaves the others as they were.
-
-A painter works in versions, one run of a program each: the program writes the flower, paints it once at the end and saves the flower on its canvas, and the painter looks at the picture between runs. So the one `.flower.png` is both the picture to look at and the record to go on from. To keep working, load the flower from it, append petals and paint again:
+A painter works in versions. The one `.flower.png` is both the picture to look at and the record to go on from: to keep working, load the flower from it, append petals and paint again.
 
 ```python
 flower = pc.load_flower("sketch.flower.png")
@@ -78,14 +55,6 @@ pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathnam
 ```
 
 The flower is all there is to keep: the coat and the canvas come from it.
-
-Version 0.8 paints the same pixels as 0.7. `Painting` is gone: a version is painted once, so there was nothing for it to remember between paints.
-
-Version 0.7 paints the same pixels as 0.6, but for two changes. A smudge that starts off the canvas loads the colour where it meets the canvas, where it loaded black (in kiku, one blender petal, 1,464 pixels by up to 24/255). The dab profile is read from a table per hardness instead of `powf` and `exp`, 25% faster on one thread, at most 1.1e-4 off the formula (2 of kiku's 1,228,800 values move by 1/255). It adds `Painting`, which paints only the petals a flower gained since the last paint, and the petal keys `id` and `group`, which keep a petal's jitter when others are taken out; a flower without them paints as before.
-
-Version 0.6 paints the same pixels as 0.5 under new names: a scene is a flower, a stroke is a petal, `PRESETS` is `BRUSHES` (and a brush object names the brush it starts from with `"brush"`, not `"preset"`), and the flower is flat (`width`, `height`, `background` and `seed` at the top; `supersample` is an option of the paint). The `.petal` ZIP is gone: a `.flower.json` holds the flower and a `.flower.png` carries it on its canvas. Painting over a base image is gone too. A `.coat.ply` keeps every dab exactly, so it is larger than 0.5's `.ply`.
-
-Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the float canvas). It is stricter about mistakes: canvas `width`, `height`, `seed` and `supersample` must be whole numbers written as numbers (0.4 also took `"640"` and rounded `640.7`), a control point may not lie more than 16 canvas sizes off the canvas (the base image's size, when there is one), and a canvas or a base PNG is at most 2^28 pixels after scale and supersample; each of these is an error naming the stroke or field, where 0.4 rounded quietly, hung or crashed. A base image is PNG only; 0.4 took anything Pillow opens. 0.4's command line (`python -m paintcode`) is gone; every option it had is a keyword of `render_png` and `render_ply`. A 16-bit base PNG keeps its tones (0.4 clipped 16-bit grey to white). Version 0.4 changed the random numbers (jitter and paper tooth), so a scene from 0.3 renders with slightly different jitter.
 
 ## Flower format
 
@@ -110,34 +79,16 @@ Version 0.5 paints the same pixels as 0.4 (within 1/255 on the PNG, 1e-5 on the 
 - **id** (optional) names the petal, once in the flower. Its jitter is keyed by the name, so taking out, adding or reordering other petals never changes how it lies.
 - **group** (optional) names the petals it belongs with, such as `"sky"`. A petal in a group, and without an id, is keyed by the group and its place among them, so only a change in its own group can move its jitter.
 
-## The dab
+Jitter is counter-based, so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. A petal without an `id` or a `group` is keyed by its index: taking one out of the middle moves the jitter of the unnamed petals after it.
 
-Each dab is
-
-$$\alpha(\mathbf{x}) = \text{flow}\cdot\exp\!\left(-\tfrac12\, q^{\,n}\right),\qquad n = \frac{1}{1-h},\qquad q = \left(\tfrac{u}{\sigma_x}\right)^2 + \left(\tfrac{v}{\sigma_y}\right)^2$$
-
-where $(u, v)$ is the pixel offset rotated into the dab's frame and $h$ is hardness. The profile reaches $e^{-2}$ at $\sigma\, 2^{1/n}$, so the engine sets $\sigma = \text{radius}\cdot 2^{-1/n}$: the visible edge stays at the brush radius whatever the hardness, with $\sigma = r/2$ for a Gaussian and $\sigma = r$ for a hard ellipse. With $h = 0$ it is exactly a 2D Gaussian; as $h \to 1$ it becomes a hard-edged ellipse one sigma across. Sigmas below half a pixel are raised to 0.5 px, dabs are cut off at $q > 9$, and they are composited with plain "over". Dab geometry is computed in float64; the per-pixel kernel and the compositing are float32.
-
-### Sharpness
-
-A Gaussian is a low-pass filter, so a petal made of Gaussians has soft edges by nature; hardness is the cure. A petal of size 16 keeps a half-coverage width of 26 to 30 px from hardness 0 to 0.95, while its 10–90% edge narrows from about 14 px to 1 px. Hard brushes alias, so set `supersample=` to paint at N times the size and box-filter down; the dabs and the jitter stay the same, only the sampling improves.
-
-### As Gaussian splats
-
-`.coat.ply` writes one Gaussian per dab: position on the image plane (x right, y down, the longer side spanning $[-1, 1]$), scales $\log\sigma$ with a vanishing third axis, a quaternion for the dab angle about $z$, colour as the SH DC term, opacity as a logit. Paint order becomes depth: the first dab is farthest and the last is nearest to a camera on the $-z$ side, so depth-sorted splatting composites them in the order they were painted. The stack is only 0.05 deep, so this holds facing the plane: turned away, the splats sort by where they sit instead of when they were painted, and the wide early sky petals drift in front of the flower. The files open in [SuperSplat](https://superspl.at/editor) through File > Import. After the 3DGS fields come `pc_*` fields that keep each dab exactly (position, sigmas, angle, opacity, hardness and grain as doubles, its colour as floats), and a `paintcode` header comment keeps the size, supersample, seed and background, so `load_coat` gives back a coat that paints the same canvas bit for bit.
-
-The tests carry a separate, plain rasteriser that reads only the 3DGS fields of the PLY. For a painting made with hardness 0 and no grain it reproduces the canvas to within 2/255 (`a_soft_painting_round_trips_through_the_ply` in `crates/paintcode/src/tests.rs`). The 3DGS kernel has no hardness or grain, so other paintings come back softer:
-
-![The painting, and the same dabs rendered back from the PLY](examples/png_vs_ply.png)
-
-## Brush fields
+## Brushes
 
 | field | meaning |
 |---|---|
 | `size` | visible radius in px at full pressure; the same size looks the same at every hardness |
 | `aspect` | minor / major axis ratio |
 | `angle` | `null`: the major axis lies across the petal and turns with it; a number: fixed nib angle in degrees |
-| `hardness` | profile exponent $1/(1-h)$: 0 is a Gaussian, 0.9 is nearly a hard ellipse |
+| `hardness` | 0 is a Gaussian, 0.9 is nearly a hard ellipse; hard brushes alias, so paint them with `supersample=2` or 3 |
 | `flow` | opacity built up at the default spacing |
 | `spacing` | dab distance as a fraction of the footprint; flow is normalised to it, so this only trades speed for smoothness |
 | `min_size`, `size_gamma` | radius $= \text{size}\cdot\text{lerp}(\text{min\_size}, 1, p^{\gamma})$ |
@@ -145,62 +96,42 @@ The tests carry a separate, plain rasteriser that reads only the 3DGS fields of 
 | `tilt_stretch` | tilt 1 stretches the major axis by $1 + \text{tilt\_stretch}$ and thins the film |
 | `size_jitter`, `angle_jitter`, `pos_jitter`, `flow_jitter` | uniform noise from the canvas seed |
 | `load`, `half_life`, `min_load` | paint on the brush, and how many px of travel it takes to halve |
-| `pickup` | share of the wet paint under the brush mixed into the carried colour, per radius of travel |
+| `pickup` | share of the wet paint under the brush mixed into the carried colour, per radius of travel; only wet paint, so a brush never picks up the dry background or re-picks its own trail |
 | `grain`, `grain_scale` | paper tooth fixed to the canvas, modulating every dab |
 
 Brushes: `ink`, `pencil`, `nib`, `round`, `filbert`, `flat`, `airbrush`, `dry`, `blender`. `paintcode.BRUSHES` holds each one with every field, written as a flower would write it.
 
 ![Every brush drawing the same curve](examples/brush_sheet.png)
 
-### Wet paint
-
-The canvas keeps a wetness map. Every dab makes the area under it wetter, and `pickup` only takes colour from wet paint, read from a snapshot taken when the petal starts. So a brush never picks up the dry background, never re-picks its own trail, and the result does not depend on dab spacing.
-
-## The engine
-
-The engine is Rust: one crate, `crates/paintcode`, with one module per part of the engine. Built with its `python` feature it is the Python package's `paintcode._core`; the rest of the package only re-exports it. Its public Rust API is what Python can do and no more (with the `profile` timers for the benches): the modules are private, and the tests that reach inside them live inside the crate, in `src/tests/`. Dependencies point one way, from the leaf up, and `tests/layering.rs` fails if a module reaches back down the list.
-
-| module | part | may use | does |
-|---|---|---|---|
-| `error` | leaf | nothing | every way paintcode fails, as one enum |
-| `profile` | leaf | nothing | stage timers, empty unless built with the `profile` feature |
-| `math` | leaf | nothing | counter-based RNG, dab profile and geometry |
-| `flower` | bones | error, math | flower, petal and brush types, brushes, colours |
-| `render` | render | error, math | dabs to pixels, coats, paper grain, downsampling |
-| `petal` | flesh | profile, math, flower, render | control points to dabs, carrying paint |
-| `io` | files | error, flower, render | encoders and decoders, in pairs: flower JSON, PNG, PLY |
-| `python` | face | everything | `paintcode._core`, only with the `python` feature |
-
-Up to 0.4 a numpy engine in this package was the reference, and the core was checked against it at 1e-5 on the float canvas (2.4e-7 at worst on kiku). 0.5 retired it: its output for the examples and a feature matrix is frozen in `tests/golden/`, and the core is checked against those files.
-
-A petal is painted in two parallel phases: every dab's kernel and the wet paint under it are evaluated independently (pickup reads the canvas as it was when the petal began), then the dabs are composited in order, one band of rows per thread. The fast path also skips the parts of each dab's square that lie outside its $q \le 9$ ellipse. None of this changes a bit: the tests render with the reference path (whole squares, one thread) and require identical output. The profile itself is read from a table per hardness, 8192 steps over $0 \le q \le 9$ with linear interpolation, instead of `powf` and `exp` on every pixel: at most 1.1e-4 off the formula, for the hardest brush.
-
-kiku, 640², supersample 2 (87,110 dabs), from `cargo bench` on an M2 Pro:
-
-| threads | time | dabs per second |
-|---|---|---|
-| 1 | 1.83 s | 47.6 k |
-| 10 | 0.48 s | 182 k |
-
-On the 2-core VM where the numpy engine of 0.4 took 52 s, the Rust core took 3.5 s on both cores.
-
-```bash
-cargo bench -p paintcode                                 # the example flowers on one core and on all, compared with the last run
-```
-
-## Tests
-
-```bash
-cargo test --release -p paintcode -- --include-ignored   # the engine: behaviour, golden snapshots, coats, fast path = reference path, layering
-uv run pytest                                            # the Python face: arguments, files, errors
-```
-
-The engine tests write the golden snapshots in `tests/golden/` again every run, and git shows what moved; CI fails when a run changes them, so a change that moves pixels commits them with it. `.gitattributes` gives the PNGs a `png` diff driver, and one line points it at an example in this repo, so `git diff` says how many values of each image moved and by how much instead of its size:
-
-```bash
-git config diff.png.command 'cargo run -q --release -p paintcode --example diff --'
-``` Up to 0.6 they were the numpy engine's output at 0.4, made by `tests/golden/make.py` (`git show 02f2aea:tests/golden/make.py` has it), and the core matched them as 0.5 describes.
-
 ## Credits
 
 The ideas of paint depletion, colour pickup and short-stroke painting were learned from [paint-mcp](https://github.com/joeyballentine/paint-mcp). No code was taken from it.
+
+## API
+
+The API is functions over data: each noun is a stage of a painting, a function takes one stage to the next, and nothing keeps state between calls. A flower is a dict (anything `json.dumps` takes). `_to_` turns one thing into another, `_on_` and `_off_` put a flower on a canvas and take it off. A function with more than one parameter takes them by keyword only. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` say the same as this section. There is no command line; the package has no dependencies of its own.
+
+Paint:
+
+| call | gives |
+|---|---|
+| `flower_to_canvas(flower=, scale=1.0, supersample=1)` | the canvas; `scale` makes coordinates and brush sizes larger together, `supersample` paints at N times the size and box-filters down |
+| `flower_to_coat(flower=, scale=1.0, supersample=1)` | every dab it lays, in order |
+| `coat_to_canvas(coat)` | the same canvas, bit for bit, as painting the flower |
+| `flower_on_canvas(flower=, canvas=)` | the canvas with the flower on it, replacing any flower that was |
+| `flower_off_canvas(canvas)` | the flower on it; a canvas without one is an error |
+
+Files: a `load_` takes the path of a file and tells formats apart by its bytes, not its name; a `save_` takes a pathname (the path without a suffix), adds the suffix of what it writes and returns the path written. Paths are a `str` or an `os.PathLike`.
+
+| call | reads or writes |
+|---|---|
+| `load_flower(path)` | a `.flower.json`, or the flower on a `.flower.png`; keys in their written order |
+| `save_flower(flower=, pathname=)` | `pathname.flower.json`, one petal per line |
+| `load_canvas(path)` | any PNG, only its pixels: grey, palette, alpha and 16-bit become 8-bit RGB |
+| `save_canvas(canvas=, pathname=)` | `pathname.png`, or `pathname.flower.png` with its flower in a compressed iTXt chunk |
+| `load_coat(path)` | a `.coat.ply`; a 3DGS file from elsewhere is refused |
+| `save_coat(coat=, pathname=)` | `pathname.coat.ply`: every dab as a flat Gaussian in the 3D Gaussian Splatting layout, which splat viewers open, and kept exactly |
+
+`Canvas` has `width` and `height`, `peek(x=, y=, width=, height=)`, the colour of a rectangle as `(r, g, b)`, each channel's median, and `crop(x=, y=, width=, height=)`, a rectangle as a canvas of its own (the flower stays behind). `Coat` has `width`, `height`, `supersample` and `len()`, its number of dabs. `BRUSHES` maps each brush name to every field.
+
+A mistake raises `ValueError` with a message that names the petal, the field or the file, or the size of a canvas past its limit (2^28 pixels); only memory that is not there raises `MemoryError`.
