@@ -182,9 +182,8 @@ def test_the_brushes_show_their_fields(tmp_path):
 
 
 def test_the_stub_says_what_the_module_has():
-    """_core.pyi is written by hand (pyo3-stub-gen does not support pyo3 0.30 yet), so it is
-    checked here: the same functions and classes, the same parameters, positional or keyword-only
-    alike."""
+    """_core.pyi is written by hand, so it is checked here: the same functions and classes, the
+    same parameters, positional or keyword-only alike."""
     from paintcode import _core
     stub = ast.parse(Path(_core.__file__).with_name("_core.pyi").read_text())
     funcs = {n.name: n for n in stub.body if isinstance(n, ast.FunctionDef)}
@@ -213,3 +212,13 @@ def test_the_stub_says_what_the_module_has():
                 continue
             if not m.name.startswith("__"):
                 same(m, getattr(cls, m.name), 1)
+
+
+def test_the_readme_lists_what_the_module_has():
+    """The README ends with the stub's signatures for whoever reads only the end of a file; each
+    line of that list opens with the name it is about, and the names are the package's."""
+    readme = (ROOT / "README.md").read_text()
+    block = readme.split("\n## API\n", 1)[1].split("```python\n", 1)[1].split("```", 1)[0]
+    named = {line.split("(")[0].split(":")[0].split(".")[0].split(" ")[0]
+             for line in block.splitlines() if line and not line.startswith("#")}
+    assert named - {"Flower", "Path"} == set(paintcode.__all__)
