@@ -12,16 +12,16 @@ use std::io::Cursor;
 
 use paintcode::{Flower, decode_canvas, flower_off_canvas};
 
-/// A PNG as the bytes of its pixels and the flower on it. The engine keeps a canvas's pixels to
+/// A canvas as git sees it: its pixels and the flower on it. The engine keeps a canvas's pixels to
 /// itself, so they are read here with the png crate, expanded the way the engine expands them.
-struct Image {
+struct Canvas {
     width: u32,
     height: u32,
     pixels: Vec<u8>,
     flower: Option<Flower>,
 }
 
-fn load(path: &str) -> Option<Image> {
+fn load(path: &str) -> Option<Canvas> {
     // git passes /dev/null for the side of an added or a deleted file
     let bytes = std::fs::read(path).ok().filter(|b| !b.is_empty())?;
     let flower = flower_off_canvas(&decode_canvas(&bytes).ok()?).ok();
@@ -31,7 +31,7 @@ fn load(path: &str) -> Option<Image> {
     let mut pixels = vec![0; reader.output_buffer_size()?];
     let frame = reader.next_frame(&mut pixels).ok()?;
     pixels.truncate(frame.buffer_size());
-    Some(Image {
+    Some(Canvas {
         width: frame.width,
         height: frame.height,
         pixels,

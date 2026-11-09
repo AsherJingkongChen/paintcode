@@ -13,16 +13,16 @@ crate-type = ["cdylib", "rlib"]
 bench = false
 
 [dependencies]
-png.workspace = true
-rayon.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
+png = "0.18"
+rayon = "1"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+thiserror = "2"
 pyo3 = { version = "0.30", features = ["abi3-py310"], optional = true }
 
 [dev-dependencies]
-rayon.workspace = true
-flate2.workspace = true
-criterion.workspace = true
+flate2 = "1"
+# terminal output only, no plots
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]
 name = "paint"
