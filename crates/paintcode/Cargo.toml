@@ -6,8 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# cargo bench runs benches/ only, not the unit tests in bench mode
 [lib]
+# rlib for the tests and benches, cdylib for maturin to load as paintcode._core
+crate-type = ["cdylib", "rlib"]
+# cargo bench runs benches/ only, not the unit tests in bench mode
 bench = false
 
 [dependencies]
@@ -15,6 +17,7 @@ png.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+pyo3 = { version = "0.30", features = ["abi3-py310"], optional = true }
 
 [dev-dependencies]
 rayon.workspace = true
@@ -28,6 +31,8 @@ harness = false
 [features]
 # time every stage of a paint; see src/profile.rs and benches/stages.rs
 profile = []
+# the Python module paintcode._core (src/python.rs); maturin turns it on, see pyproject.toml
+python = ["dep:pyo3"]
 
 [[bench]]
 name = "stages"

@@ -6,17 +6,9 @@
 //! str or an `os.PathLike`, and the files are read and written here, in Rust. A function with more than one parameter takes them
 //! by keyword only.
 
-#![deny(
-    clippy::unwrap_used,
-    clippy::panic,
-    clippy::todo,
-    clippy::unimplemented
-)]
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::panic))]
-
 use std::path::{Path, PathBuf};
 
-use paintcode::{Error, Flower, RenderOpts, io};
+use crate::{Error, Flower, RenderOpts, io};
 use pyo3::exceptions::{PyMemoryError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -75,7 +67,7 @@ fn opts(scale: f64, supersample: i64) -> RenderOpts {
 
 /// The pixels you see, 8-bit RGB, and the flower on them if one was put there.
 #[pyclass(frozen, module = "paintcode")]
-struct Canvas(paintcode::Canvas);
+struct Canvas(crate::Canvas);
 
 #[pymethods]
 impl Canvas {
@@ -120,7 +112,7 @@ impl Canvas {
             let i = (row * w + x) * 3;
             data.extend_from_slice(&self.0.pixels[i..i + width * 3]);
         }
-        Ok(Canvas(paintcode::Canvas {
+        Ok(Canvas(crate::Canvas {
             width,
             height,
             pixels: data,
@@ -151,7 +143,7 @@ impl Canvas {
 
 /// Every dab a flower laid, in order: what coat_to_canvas lays again.
 #[pyclass(frozen, module = "paintcode")]
-struct Coat(paintcode::Coat);
+struct Coat(crate::Coat);
 
 #[pymethods]
 impl Coat {
@@ -210,7 +202,7 @@ fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, pathname: PathBuf) -> 
 fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
     let bytes = std::fs::read(&path)?;
     let canvas = io::decode_canvas(&bytes).map_err(|e| file_error(&path, e))?;
-    Ok(Canvas(paintcode::Canvas {
+    Ok(Canvas(crate::Canvas {
         flower: None,
         ..canvas
     }))
@@ -244,7 +236,7 @@ fn load_coat(path: PathBuf) -> PyResult<Coat> {
 #[pyfunction]
 #[pyo3(signature = (*, coat, pathname))]
 fn save_coat(py: Python<'_>, coat: PyRef<'_, Coat>, pathname: PathBuf) -> PyResult<PathBuf> {
-    let coat: &paintcode::Coat = &coat.0;
+    let coat: &crate::Coat = &coat.0;
     let ply = py.detach(|| io::encode_coat(coat));
     write(pathname, ".coat.ply", &ply)
 }
@@ -263,7 +255,7 @@ fn flower_to_canvas(
     let flower = to_flower(py, flower)?;
     let o = opts(scale, supersample);
     let canvas = py
-        .detach(|| paintcode::flower_to_canvas(&flower, &o))
+        .detach(|| crate::flower_to_canvas(&flower, &o))
         .map_err(value_error)?;
     Ok(Canvas(canvas))
 }
@@ -279,7 +271,7 @@ fn flower_to_coat(
 ) -> PyResult<Coat> {
     let flower = to_flower(py, flower)?;
     let o = opts(scale, supersample);
-    py.detach(|| paintcode::flower_to_coat(&flower, &o))
+    py.detach(|| crate::flower_to_coat(&flower, &o))
         .map(Coat)
         .map_err(value_error)
 }
@@ -287,9 +279,9 @@ fn flower_to_coat(
 /// Lay a coat's dabs again: the same canvas, bit for bit, as painting its flower.
 #[pyfunction]
 fn coat_to_canvas(py: Python<'_>, coat: PyRef<'_, Coat>) -> PyResult<Canvas> {
-    let coat: &paintcode::Coat = &coat.0;
+    let coat: &crate::Coat = &coat.0;
     let canvas = py
-        .detach(|| paintcode::coat_to_canvas(coat))
+        .detach(|| crate::coat_to_canvas(coat))
         .map_err(value_error)?;
     Ok(Canvas(canvas))
 }
@@ -304,10 +296,7 @@ fn flower_on_canvas(
     canvas: PyRef<'_, Canvas>,
 ) -> PyResult<Canvas> {
     let flower = to_flower(py, flower)?;
-    Ok(Canvas(paintcode::flower_on_canvas(
-        &flower,
-        canvas.0.clone(),
-    )))
+    Ok(Canvas(crate::flower_on_canvas(&flower, canvas.0.clone())))
 }
 
 /// The flower on a canvas. A canvas without one is an error.
@@ -316,7 +305,7 @@ fn flower_off_canvas<'py>(
     py: Python<'py>,
     canvas: PyRef<'py, Canvas>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let flower = paintcode::flower_off_canvas(&canvas.0).map_err(value_error)?;
+    let flower = crate::flower_off_canvas(&canvas.0).map_err(value_error)?;
     to_dict(py, &flower.source)
 }
 
@@ -337,10 +326,10 @@ fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flower_on_canvas, m)?)?;
     m.add_function(wrap_pyfunction!(flower_off_canvas, m)?)?;
     // every brush with its fields, as a flower would write them
-    let brushes: serde_json::Map<String, Value> = paintcode::flower::BRUSH_NAMES
+    let brushes: serde_json::Map<String, Value> = crate::flower::BRUSH_NAMES
         .iter()
         .map(|n| {
-            let b = paintcode::flower::brush(n).expect("a listed brush");
+            let b = crate::flower::brush(n).expect("a listed brush");
             (n.to_string(), Value::Object(b.to_fields()))
         })
         .collect();

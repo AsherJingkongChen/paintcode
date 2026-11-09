@@ -158,7 +158,7 @@ The canvas keeps a wetness map. Every dab makes the area under it wetter, and `p
 
 ## The engine
 
-The engine is Rust: one library, `crates/paintcode`, with one module per part of the engine. `bindings/python` builds it into the Python package as `paintcode._core`; the rest of the package only re-exports it. Inside the library, dependencies point one way, from the leaf up, and `tests/layering.rs` fails if a module reaches back down the list.
+The engine is Rust: one crate, `crates/paintcode`, with one module per part of the engine. Built with its `python` feature it is the Python package's `paintcode._core`; the rest of the package only re-exports it. Its public Rust API is what Python can do and no more (with the `profile` timers for the benches): the modules are private, and the tests that reach inside them live inside the crate, in `src/tests/`. Dependencies point one way, from the leaf up, and `tests/layering.rs` fails if a module reaches back down the list.
 
 | module | part | may use | does |
 |---|---|---|---|
@@ -169,6 +169,7 @@ The engine is Rust: one library, `crates/paintcode`, with one module per part of
 | `render` | render | error, math | dabs to pixels, coats, paper grain, downsampling |
 | `petal` | flesh | profile, math, flower, render | control points to dabs, carrying paint |
 | `io` | files | error, flower, render | encoders and decoders, in pairs: flower JSON, PNG, PLY |
+| `python` | face | everything | `paintcode._core`, only with the `python` feature |
 
 Up to 0.4 a numpy engine in this package was the reference, and the core was checked against it at 1e-5 on the float canvas (2.4e-7 at worst on kiku). 0.5 retired it: its output for the examples and a feature matrix is frozen in `tests/golden/`, and the core is checked against those files.
 

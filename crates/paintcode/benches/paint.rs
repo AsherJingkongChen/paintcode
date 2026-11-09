@@ -4,8 +4,8 @@
 //! of different sizes compare, and criterion compares each run with the one before it.
 //!
 //! loop: the rest of an agent's round with kiku, on one thread, step by step: the flower's JSON
-//! read and written, the wet canvas dried to 8 bits, and the canvas encoded as a PNG with and
-//! without its flower on it, and decoded.
+//! read and written, and the canvas encoded as a PNG with and without its flower on it, and
+//! decoded. Drying is timed with the other stages in benches/stages.rs.
 use std::hint::black_box;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -15,7 +15,7 @@ use criterion::{
 };
 use paintcode::{
     Flower, RenderOpts, decode_canvas, decode_flower, encode_canvas, encode_flower,
-    flower_on_canvas, flower_to_coat, paint_flower,
+    flower_on_canvas, flower_to_canvas, flower_to_coat,
 };
 
 const CASES: [(&str, &str, i64); 3] = [
@@ -53,16 +53,13 @@ fn paint(c: &mut Criterion) {
     group.sampling_mode(SamplingMode::Flat).sample_size(SAMPLES);
     for (name, file, supersample) in CASES {
         let flower = load(file);
-        let opts = RenderOpts {
-            supersample,
-            ..RenderOpts::default()
-        };
-        let dabs = flower_to_coat(&flower, &opts).unwrap().dabs.len();
+        let opts = RenderOpts::new(1.0, supersample);
+        let dabs = flower_to_coat(&flower, &opts).unwrap().len();
         group.throughput(Throughput::Elements(dabs as u64));
         for n in threads() {
             let pool = pool(n);
             let once =
-                || pool.install(|| black_box(paint_flower(black_box(&flower), &opts).unwrap()));
+                || pool.install(|| black_box(flower_to_canvas(black_box(&flower), &opts).unwrap()));
             // room for every sample and a little more, measured on this machine
             let t = Instant::now();
             once();
@@ -86,12 +83,8 @@ fn round(c: &mut Criterion) {
     let flower = decode_flower(&text).unwrap();
     let pool = pool(1);
     for supersample in [1, 2] {
-        let opts = RenderOpts {
-            supersample,
-            ..RenderOpts::default()
-        };
-        let wet = paint_flower(&flower, &opts).unwrap();
-        let canvas = wet.dry();
+        let opts = RenderOpts::new(1.0, supersample);
+        let canvas = flower_to_canvas(&flower, &opts).unwrap();
         let on = flower_on_canvas(&flower, canvas.clone());
         let png = encode_canvas(&on);
         let ss = format!("ss{supersample}");
@@ -103,9 +96,6 @@ fn round(c: &mut Criterion) {
                 b.iter(|| encode_flower(black_box(&flower)))
             });
         }
-        group.bench_function(BenchmarkId::new("dry", &ss), |b| {
-            b.iter(|| pool.install(|| black_box(&wet).dry()))
-        });
         group.bench_function(BenchmarkId::new("png", &ss), |b| {
             b.iter(|| pool.install(|| encode_canvas(black_box(&canvas))))
         });

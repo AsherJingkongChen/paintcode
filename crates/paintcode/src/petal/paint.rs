@@ -122,6 +122,7 @@ pub fn plan_petal(
 }
 
 /// Lay one petal onto the canvas: [`plan_petal`], then [`paint_planned`].
+#[cfg(test)]
 pub fn paint_petal(
     canvas: &mut WetCanvas,
     key: i64,

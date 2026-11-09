@@ -11,5 +11,8 @@
 mod paint;
 mod path;
 
-pub use paint::{Options, Painted, Planned, paint_petal, paint_planned, plan_petal};
-pub use path::{Sample, samples};
+pub use paint::{Options, paint_planned, plan_petal};
+#[cfg(test)]
+pub use paint::{Painted, paint_petal};
+#[cfg(test)]
+pub use path::samples;

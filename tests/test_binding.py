@@ -1,4 +1,4 @@
-"""The Python face of the engine. The engine itself is tested in Rust (crates/paintcode/tests);
+"""The Python face of the engine. The engine itself is tested in Rust (crates/paintcode/src/tests);
 these check what crosses the boundary: arguments, bytes, errors, files."""
 import ast
 import inspect

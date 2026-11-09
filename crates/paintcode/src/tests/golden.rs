@@ -13,7 +13,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use paintcode::{
+use crate::{
     Flower, RenderOpts, decode_coat, encode_canvas, encode_coat, flower_to_coat, lay_coat,
     paint_flower,
 };

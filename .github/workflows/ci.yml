@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: The pinned nightly from rust-toolchain.toml
         run: rustup toolchain install
-      - name: Everything builds, the binding and the benches included
-        run: cargo check --workspace --all-targets
+      - name: Everything builds, the python feature and the benches included
+        run: cargo check --workspace --all-targets --all-features
       - name: Clippy, warnings as errors; no unwrap, panic, todo or unimplemented outside tests
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings

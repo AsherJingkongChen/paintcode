@@ -1,10 +1,10 @@
 //! What the engine promises, one behaviour per test (ported from the numpy engine's
 //! tests/test_engine.py when that engine retired).
 
-use paintcode::flower::{Brush, Color, brush};
-use paintcode::petal::{Options, paint_petal, samples};
-use paintcode::render::{Coat, Dab, Spans, WetCanvas};
-use paintcode::{Flower, RenderOpts, flower_to_coat, lay_coat, paint_flower};
+use crate::flower::{Brush, Color, brush};
+use crate::petal::{Options, paint_petal, samples};
+use crate::render::{Coat, Dab, Spans, WetCanvas};
+use crate::{Flower, RenderOpts, flower_to_coat, lay_coat, paint_flower};
 use serde_json::{Value, json};
 
 fn flower(v: Value) -> Flower {
@@ -25,14 +25,14 @@ fn coat(v: Value, opts: RenderOpts) -> Coat {
 }
 
 fn rgb(hex: &str) -> [f32; 3] {
-    paintcode::flower::parse_color(&json!(hex)).unwrap()
+    crate::flower::parse_color(&json!(hex)).unwrap()
 }
 
 fn row(points: &[[f64; 2]]) -> Vec<[f64; 4]> {
     points.iter().map(|p| [p[0], p[1], 1.0, 0.0]).collect()
 }
 
-fn petal(c: &mut WetCanvas, b: &Brush, color: Color, pts: &[[f64; 4]]) -> paintcode::Painted {
+fn petal(c: &mut WetCanvas, b: &Brush, color: Color, pts: &[[f64; 4]]) -> crate::petal::Painted {
     paint_petal(c, 0, b, &color, pts, true, Options::default())
 }
 
@@ -365,7 +365,7 @@ fn a_coat_survives_its_ply() {
         ..RenderOpts::default()
     };
     let c = coat(busy(), opts);
-    let back = paintcode::decode_coat(&paintcode::encode_coat(&c)).unwrap();
+    let back = crate::decode_coat(&crate::encode_coat(&c)).unwrap();
     assert_eq!(back, c);
     assert!(lay_coat(&back).unwrap().planes == paint(busy(), opts).planes);
 }
@@ -373,14 +373,12 @@ fn a_coat_survives_its_ply() {
 #[test]
 fn a_flower_rides_on_its_canvas() {
     let canvas = paint(busy(), RenderOpts::default()).dry();
-    let on = paintcode::flower_on_canvas(&flower(busy()), canvas.clone());
-    let png = paintcode::encode_canvas(&on);
-    assert_eq!(paintcode::decode_flower(&png).unwrap(), flower(busy()));
-    assert_eq!(paintcode::decode_canvas(&png).unwrap(), on);
-    assert_eq!(paintcode::flower_off_canvas(&on).unwrap(), flower(busy()));
-    let e = paintcode::flower_off_canvas(&canvas)
-        .unwrap_err()
-        .to_string();
+    let on = crate::flower_on_canvas(&flower(busy()), canvas.clone());
+    let png = crate::encode_canvas(&on);
+    assert_eq!(crate::decode_flower(&png).unwrap(), flower(busy()));
+    assert_eq!(crate::decode_canvas(&png).unwrap(), on);
+    assert_eq!(crate::flower_off_canvas(&on).unwrap(), flower(busy()));
+    let e = crate::flower_off_canvas(&canvas).unwrap_err().to_string();
     assert_eq!(e, "no flower on this canvas");
 }
 

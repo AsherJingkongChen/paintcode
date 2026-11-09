@@ -8,12 +8,35 @@
 //!     git config diff.png.command 'cargo run -q --release -p paintcode --example diff --'
 //!
 //! `git diff` says how many 8-bit values of each image moved and by how much, not its size.
-use paintcode::{Canvas, decode_canvas};
+use std::io::Cursor;
 
-fn load(path: &str) -> Option<Canvas> {
+use paintcode::{Flower, decode_canvas, flower_off_canvas};
+
+/// A PNG as the bytes of its pixels and the flower on it. The engine keeps a canvas's pixels to
+/// itself, so they are read here with the png crate, expanded the way the engine expands them.
+struct Image {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+    flower: Option<Flower>,
+}
+
+fn load(path: &str) -> Option<Image> {
     // git passes /dev/null for the side of an added or a deleted file
     let bytes = std::fs::read(path).ok().filter(|b| !b.is_empty())?;
-    decode_canvas(&bytes).ok()
+    let flower = flower_off_canvas(&decode_canvas(&bytes).ok()?).ok();
+    let mut dec = png::Decoder::new(Cursor::new(&bytes[..]));
+    dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = dec.read_info().ok()?;
+    let mut pixels = vec![0; reader.output_buffer_size()?];
+    let frame = reader.next_frame(&mut pixels).ok()?;
+    pixels.truncate(frame.buffer_size());
+    Some(Image {
+        width: frame.width,
+        height: frame.height,
+        pixels,
+        flower,
+    })
 }
 
 fn main() {

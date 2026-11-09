@@ -322,18 +322,10 @@ dependencies = [
  "criterion",
  "flate2",
  "png",
+ "pyo3",
  "rayon",
  "serde_json",
  "thiserror",
-]
-
-[[package]]
-name = "paintcode-python"
-version = "0.8.0"
-dependencies = [
- "paintcode",
- "pyo3",
- "serde_json",
 ]
 
 [[package]]

@@ -1,7 +1,8 @@
 //! The fast path must paint the same bits as the reference path: whole 3-sigma squares, one
 //! thread. Any speed-up that changes a pixel fails here.
 
-use paintcode::{Flower, RenderOpts, Spans, paint_flower};
+use crate::render::Spans;
+use crate::{Flower, RenderOpts, paint_flower};
 
 fn flower(name: &str) -> Flower {
     let path = format!("{}/../../examples/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -46,7 +47,7 @@ fn png_round_trip_of_a_render() {
     let s = flower("brush_sheet.flower.json");
     let img = paint_flower(&s, &RenderOpts::default()).unwrap().dry();
     assert_eq!(
-        paintcode::decode_canvas(&paintcode::encode_canvas(&img)).unwrap(),
+        crate::decode_canvas(&crate::encode_canvas(&img)).unwrap(),
         img
     );
 }

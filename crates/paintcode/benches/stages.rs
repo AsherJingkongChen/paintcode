@@ -32,10 +32,7 @@ fn main() {
         .unwrap();
     for (name, file, supersample) in CASES {
         let flower = load(file);
-        let opts = RenderOpts {
-            supersample,
-            ..RenderOpts::default()
-        };
+        let opts = RenderOpts::new(1.0, supersample);
         pool.install(|| flower_to_canvas(&flower, &opts).unwrap());
         profile::take();
         let start = Instant::now();

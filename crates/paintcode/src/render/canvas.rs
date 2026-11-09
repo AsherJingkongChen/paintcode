@@ -4,6 +4,6 @@
 pub struct Canvas {
     pub width: usize,
     pub height: usize,
-    pub pixels: Vec<u8>,
-    pub flower: Option<String>,
+    pub(crate) pixels: Vec<u8>,
+    pub(crate) flower: Option<String>,
 }

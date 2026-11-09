@@ -32,12 +32,12 @@ pub struct Petal {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Flower {
     /// The flower as it was written, keys in their order: what a file keeps.
-    pub source: Value,
-    pub width: usize,
-    pub height: usize,
-    pub background: [f32; 3],
-    pub seed: i64,
-    pub petals: Vec<Petal>,
+    pub(crate) source: Value,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) background: [f32; 3],
+    pub(crate) seed: i64,
+    pub(crate) petals: Vec<Petal>,
 }
 
 /// The keys a flower may have. Anything else is a mistake worth naming.
@@ -143,7 +143,7 @@ impl Flower {
     /// or adding other petals never moves its jitter. A petal in a `group` (and without an id) is
     /// keyed by the group and its place among the group's petals without an id, so only its own
     /// group can move it. Any other petal is keyed by its index in the flower, as it always was.
-    pub fn jitter_keys(&self) -> Vec<i64> {
+    pub(crate) fn jitter_keys(&self) -> Vec<i64> {
         let mut places: HashMap<&str, i64> = HashMap::new();
         self.petals
             .iter()
