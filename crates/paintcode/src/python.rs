@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use crate::{Error, Flower, RenderOpts, io};
 use pyo3::exceptions::{PyMemoryError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
 use serde_json::Value;
 
 /// A Python exception for an engine error: MemoryError when the memory is not there, ValueError
@@ -81,54 +80,39 @@ impl Canvas {
         self.0.height
     }
 
-    /// One pixel as (r, g, b), 0..255.
-    #[pyo3(signature = (*, x, y))]
-    fn peek(&self, x: usize, y: usize) -> PyResult<(u8, u8, u8)> {
-        let (w, h) = (self.0.width, self.0.height);
-        if x >= w || y >= h {
-            return Err(PyValueError::new_err(format!(
-                "pixel ({x}, {y}) is outside the {w}x{h} canvas"
-            )));
+    /// The colour of a rectangle as (r, g, b), 0..255: each channel's median over its pixels, the
+    /// upper one when they are even in number. A median, not a mean: on the edge of a stroke a
+    /// mean is a mix that is painted nowhere, the median is the colour most of the rectangle has.
+    #[pyo3(signature = (*, x, y, width, height))]
+    fn peek(&self, x: usize, y: usize, width: usize, height: usize) -> PyResult<(u8, u8, u8)> {
+        let rows = self.rows(x, y, width, height, "peek")?;
+        let mut channels: [Vec<u8>; 3] =
+            std::array::from_fn(|_| Vec::with_capacity(width * height));
+        for row in rows {
+            for px in row.as_chunks::<3>().0 {
+                for (c, v) in channels.iter_mut().zip(px) {
+                    c.push(*v);
+                }
+            }
         }
-        let i = (y * w + x) * 3;
-        let d = &self.0.pixels;
-        Ok((d[i], d[i + 1], d[i + 2]))
+        let [r, g, b] = channels.map(|mut c| {
+            let mid = c.len() / 2;
+            *c.select_nth_unstable(mid).1
+        });
+        Ok((r, g, b))
     }
 
-    /// A rectangle of this canvas as a canvas of its own. The flower stays behind: it painted the
-    /// whole canvas, not this part.
+    /// A rectangle of this canvas as a canvas of its own; this one is left as it was. The flower
+    /// stays behind: it painted the whole canvas, not this part.
     #[pyo3(signature = (*, x, y, width, height))]
     fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> PyResult<Canvas> {
-        let (w, h) = (self.0.width, self.0.height);
-        let fits =
-            |at: usize, len: usize, side: usize| at.checked_add(len).is_some_and(|e| e <= side);
-        if width == 0 || height == 0 || !fits(x, width, w) || !fits(y, height, h) {
-            return Err(PyValueError::new_err(format!(
-                "a {width}x{height} crop at ({x}, {y}) does not fit in the {w}x{h} canvas"
-            )));
-        }
-        let mut data = Vec::with_capacity(width * height * 3);
-        for row in y..y + height {
-            let i = (row * w + x) * 3;
-            data.extend_from_slice(&self.0.pixels[i..i + width * 3]);
-        }
+        let pixels = self.rows(x, y, width, height, "crop")?.concat();
         Ok(Canvas(crate::Canvas {
             width,
             height,
-            pixels: data,
+            pixels,
             flower: None,
         }))
-    }
-
-    /// Every pixel, row by row, as RGB bytes: `numpy.frombuffer(c.pixels(), "u1").reshape(
-    /// c.height, c.width, 3)`.
-    fn pixels<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.0.pixels)
-    }
-
-    /// The canvas as PNG bytes, with its flower if one is on it: what save_canvas writes.
-    fn png<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &io::encode_canvas(&self.0))
     }
 
     fn __repr__(&self) -> String {
@@ -138,6 +122,34 @@ impl Canvas {
             ""
         };
         format!("<Canvas {}x{}{on}>", self.0.width, self.0.height)
+    }
+}
+
+impl Canvas {
+    /// The rows of a rectangle, each `width * 3` bytes, or a ValueError naming `what` when the
+    /// rectangle is empty or does not fit.
+    fn rows(
+        &self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        what: &str,
+    ) -> PyResult<Vec<&[u8]>> {
+        let (w, h) = (self.0.width, self.0.height);
+        let fits =
+            |at: usize, len: usize, side: usize| at.checked_add(len).is_some_and(|e| e <= side);
+        if width == 0 || height == 0 || !fits(x, width, w) || !fits(y, height, h) {
+            return Err(PyValueError::new_err(format!(
+                "a {width}x{height} {what} at ({x}, {y}) does not fit in the {w}x{h} canvas"
+            )));
+        }
+        Ok((y..y + height)
+            .map(|row| {
+                let i = (row * w + x) * 3;
+                &self.0.pixels[i..i + width * 3]
+            })
+            .collect())
     }
 }
 

@@ -52,7 +52,7 @@ pc.save_coat(coat=coat, pathname="sketch")                  # sketch.coat.ply
 
 flower = pc.load_flower("sketch.flower.png")                 # the flower, from its file or its canvas
 canvas = pc.load_canvas("sketch.flower.png")                 # only the pixels
-canvas.peek(x=20, y=100), canvas.crop(x=0, y=0, width=200, height=100)
+canvas.peek(x=20, y=100, width=5, height=5), canvas.crop(x=0, y=0, width=200, height=100)
 ```
 
 The API is functions over data: each noun is a stage of a painting, a function takes one stage to the next, and nothing keeps state between calls. `_to_` turns one thing into another, `_on_` and `_off_` put a flower on a canvas and take it off, `load_` takes the path of a file, and `save_` takes a pathname, adds the suffix of what it writes and returns the path written; the files are read and written in Rust. A function with more than one parameter takes them by keyword. Mistakes raise `ValueError` with a message that names the petal, the field or the file, or the size of a canvas past its limit; only memory that is not there raises `MemoryError`. `help(paintcode._core)` and the type stub `paintcode/_core.pyi` describe every function; the package has no dependencies of its own. There is no command line: the engine is a library, and Python (later JavaScript) is how it is driven.

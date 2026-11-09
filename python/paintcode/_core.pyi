@@ -51,15 +51,13 @@ class Canvas:
     def width(self) -> int: ...
     @property
     def height(self) -> int: ...
-    def peek(self, *, x: int, y: int) -> tuple[int, int, int]:
-        """One pixel as (r, g, b), 0..255."""
+    def peek(self, *, x: int, y: int, width: int, height: int) -> tuple[int, int, int]:
+        """The colour of a rectangle as (r, g, b), 0..255: each channel's median, the upper one
+        of an even count. On the edge of a stroke a mean is a mix painted nowhere; the median is
+        the colour most of the rectangle has."""
     def crop(self, *, x: int, y: int, width: int, height: int) -> "Canvas":
-        """A rectangle of this canvas as a canvas of its own. The flower stays behind."""
-    def pixels(self) -> bytes:
-        """Every pixel, row by row, as RGB bytes:
-        numpy.frombuffer(c.pixels(), "u1").reshape(c.height, c.width, 3)."""
-    def png(self) -> bytes:
-        """The canvas as PNG bytes, with its flower if one is on it: what save_canvas writes."""
+        """A rectangle of this canvas as a canvas of its own; this one is left as it was. The
+        flower stays behind."""
 
 class Coat:
     """Every dab a flower laid, in order: what coat_to_canvas lays again. len() counts the dabs."""
