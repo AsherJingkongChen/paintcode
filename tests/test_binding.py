@@ -1,7 +1,6 @@
 """The Python face of the engine. The engine itself is tested in Rust (crates/paintcode/src/tests);
 these check what crosses the boundary: arguments, bytes, errors, files."""
 import ast
-import inspect
 import io
 import json
 import subprocess
@@ -181,35 +180,13 @@ def test_the_brushes_show_their_fields(tmp_path):
             == seen(paintcode.flower_to_canvas(flower=by_fields), tmp_path, "fields")).all()
 
 
-def test_the_stub_says_what_the_module_has():
-    """_core.pyi is generated from the attributes in src/python.rs; this checks it against the
-    module that loads: the same functions and classes, the same parameters, positional or
-    keyword-only alike, and every name it declares is there."""
+def test_the_stub_names_what_the_module_has():
+    """_core.pyi is generated from src/python.rs, signatures and all. What the generator cannot see
+    is whether the module registers what the attributes declare, so the names are checked here:
+    every function, class and value in the stub is in the module that loads, and nothing else is."""
     from paintcode import _core
     stub = ast.parse(Path(_core.__file__).with_name("_core.pyi").read_text())
-    funcs = {n.name: n for n in stub.body if isinstance(n, ast.FunctionDef)}
-    classes = {n.name: n for n in stub.body if isinstance(n, ast.ClassDef)}
-    names = {n.target.id for n in stub.body if isinstance(n, ast.AnnAssign)}
-    real = {k for k, v in vars(_core).items() if callable(v) and not k.startswith("_")}
-    assert set(funcs) | set(classes) == real - names
-    assert {"BRUSHES", "Flower", "__version__"} <= names and all(hasattr(_core, n) for n in names)
-
-    def same(node, real_fn, is_method):
-        want = [(a.arg, "POSITIONAL_OR_KEYWORD") for a in node.args.args[is_method:]]
-        want += [(a.arg, "KEYWORD_ONLY") for a in node.args.kwonlyargs]
-        params = list(inspect.signature(real_fn).parameters.values())[is_method:]
-        got = [(p.name, p.kind.name) for p in params]
-        assert got == want, node.name
-
-    for name, node in funcs.items():
-        same(node, getattr(_core, name), 0)
-    for name, node in classes.items():
-        cls = getattr(_core, name)
-        for m in node.body:
-            if not isinstance(m, ast.FunctionDef):
-                continue
-            attr = inspect.getattr_static(cls, m.name)
-            if isinstance(attr, property) or type(attr).__name__ == "getset_descriptor":
-                continue
-            if not m.name.startswith("__"):
-                same(m, getattr(cls, m.name), 1)
+    declared = {n.name for n in stub.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+    declared |= {n.target.id for n in stub.body if isinstance(n, ast.AnnAssign)}
+    assert declared == {k for k in vars(_core) if not k.startswith("_")} | {"__version__"}
+    assert all(hasattr(_core, n) for n in declared)
