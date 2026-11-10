@@ -2,6 +2,10 @@
 
 What changed between versions, newest first. How the engine works is in [DESIGN.md](DESIGN.md); how to use it is in the [README](README.md).
 
+## 0.10
+
+Paints the same pixels as 0.9. A canvas carries its flower in a `pcFL` chunk of its own instead of an iTXt text chunk, so a `.flower.png` saved by 0.9 opens as a canvas without a flower: load its flower with 0.9 and save it again. The flower is still its JSON, compressed as before. Two flowers on one PNG are an error. png is a fork of 0.18.1 that can keep a chunk it does not decode (DESIGN.md, "The flower on its canvas").
+
 ## 0.9
 
 Paints the same pixels as 0.8. The Python API loses two methods, changes one and gains a type:

@@ -11,7 +11,7 @@
 //!
 //! [`decode_flower`] also reads the flower on a `.flower.png`.
 
-use std::io::Cursor;
+use std::io::{Cursor, Read, Write};
 
 use serde_json::Value;
 
@@ -22,9 +22,11 @@ use crate::error::{Error, Result};
 
 // --------------------------------------------------------------------------------------- PNG
 
-/// The iTXt keyword a flower sits under on a canvas.
-pub const FLOWER_KEYWORD: &str = "paintcode-flower";
-/// The longest flower a PNG may carry, uncompressed.
+/// The chunk a flower rides in on a canvas. Its four letters say: ancillary (`p`), private (`c`),
+/// reserved bit clear (`F`), and unsafe to copy (`L`), so a program that changes the pixels
+/// drops it instead of keeping a flower that no longer paints them.
+const FLOWER_CHUNK: png::chunk::ChunkType = png::chunk::ChunkType(*b"pcFL");
+/// The longest flower a PNG may carry, inflated.
 const FLOWER_LIMIT: usize = 64 << 20;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
@@ -33,7 +35,7 @@ fn is_png(bytes: &[u8]) -> bool {
 }
 
 /// A canvas as a PNG (8-bit RGB, lossless), with its flower if one is on it. The flower goes in a
-/// compressed iTXt chunk before the pixels, where a reader finds it first.
+/// `pcFL` chunk before the pixels, where a reader finds it first: its JSON, deflated (zlib).
 pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
     let mut out = Vec::new();
     {
@@ -43,28 +45,58 @@ pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
         enc.set_compression(png::Compression::Fast);
         let mut w = enc.write_header().expect("PNG header");
         if let Some(text) = &canvas.flower {
-            let mut chunk = png::text_metadata::ITXtChunk::new(FLOWER_KEYWORD, text.as_str());
-            chunk.compressed = true;
-            w.write_text_chunk(&chunk).expect("PNG text");
+            w.write_chunk(FLOWER_CHUNK, &deflate(text))
+                .expect("PNG chunk");
         }
         w.write_image_data(&canvas.pixels).expect("PNG data");
     }
     out
 }
 
+/// The flower in a PNG's `pcFL` chunk, if it has one. A damaged flower is an error, and so are two
+/// flowers on one PNG: neither can be trusted to be the one that painted it.
 fn decode_flower_chunk(info: &png::Info) -> Result<Option<String>> {
-    let Some(chunk) = info.utf8_text.iter().find(|c| c.keyword == FLOWER_KEYWORD) else {
+    let mut chunks = info
+        .subscribed_chunks
+        .iter()
+        .filter(|chunk| chunk.type_ == FLOWER_CHUNK);
+    let Some(chunk) = chunks.next() else {
         return Ok(None);
     };
-    let mut chunk = chunk.clone();
-    chunk
-        .decompress_text_with_limit(FLOWER_LIMIT)
-        .map_err(Error::FlowerChunk)?;
-    chunk.get_text().map(Some).map_err(Error::FlowerChunk)
+    if chunks.next().is_some() {
+        return Err(Error::FlowerChunk("two flowers on one PNG".into()));
+    }
+    if !chunk.crc_ok {
+        return Err(Error::FlowerChunk(
+            "its CRC does not match: the file is damaged".into(),
+        ));
+    }
+    let mut text = Vec::new();
+    flate2::read::ZlibDecoder::new(&chunk.data[..])
+        .take(FLOWER_LIMIT as u64 + 1)
+        .read_to_end(&mut text)
+        .map_err(|e| Error::FlowerChunk(format!("its zlib stream is broken ({e})")))?;
+    if text.len() > FLOWER_LIMIT {
+        return Err(Error::FlowerChunk(format!(
+            "it inflates past {} MiB",
+            FLOWER_LIMIT >> 20
+        )));
+    }
+    String::from_utf8(text)
+        .map(Some)
+        .map_err(|_| Error::FlowerChunk("it is not UTF-8".into()))
+}
+
+/// A flower's JSON as its `pcFL` chunk holds it: a zlib stream.
+fn deflate(text: &str) -> Vec<u8> {
+    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    z.write_all(text.as_bytes()).expect("writing to a Vec");
+    z.finish().expect("writing to a Vec")
 }
 
 fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
     let mut dec = png::Decoder::new(Cursor::new(bytes));
+    dec.subscribe(FLOWER_CHUNK);
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     Ok(dec.read_info()?)
 }
@@ -97,11 +129,10 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
     buf.resize(size, 0);
     let info = reader.next_frame(&mut buf)?;
     buf.truncate(info.buffer_size());
-    // a flower may also sit after the pixels, if another program wrote the file again
-    let mut flower = decode_flower_chunk(reader.info())?;
-    if flower.is_none() && reader.finish().is_ok() {
-        flower = decode_flower_chunk(reader.info())?;
-    }
+    // the chunks after the pixels too, as far as they go: a flower may sit there if another
+    // program wrote the file again, and a file cut short after its pixels still opens
+    reader.finish().ok();
+    let flower = decode_flower_chunk(reader.info())?;
     let channels = match info.color_type {
         png::ColorType::Grayscale => 1,
         png::ColorType::GrayscaleAlpha => 2,
@@ -675,23 +706,59 @@ mod tests {
         let mut c = canvas();
         c.flower = Some(r#"{"width": 7, "height": 5, "petals": []}"#.into());
         let mut png = encode_canvas(&c);
-        // iTXt: keyword, NUL, compression flag and method, two empty strings, then zlib data
+        // pcFL: the zlib stream of the JSON, nothing else
         let at = png
             .windows(4)
-            .position(|w| w == b"iTXt")
-            .expect("an iTXt chunk");
+            .position(|w| w == b"pcFL")
+            .expect("a pcFL chunk");
         let len = u32::from_be_bytes(png[at - 4..at].try_into().expect("4 bytes")) as usize;
         let data = at + 4;
-        let text = data + FLOWER_KEYWORD.len() + 5;
-        // keep the two-byte zlib header, break the stream after it
-        for b in &mut png[text + 2..data + len] {
+        // keep the two-byte zlib header, break the stream after it, and give the chunk a good
+        // CRC: a bad one would only make the png crate drop the chunk, and the flower with it
+        for b in &mut png[data + 2..data + len] {
             *b ^= 0x5a;
         }
-        let crc = crc32_more(crc32(b"iTXt"), &png[data..data + len]);
+        let crc = crc32_more(crc32(b"pcFL"), &png[data..data + len]);
         png[data + len..data + len + 4].copy_from_slice(&crc.to_be_bytes());
         let e = decode_canvas(&png).unwrap_err();
         assert!(matches!(e, Error::FlowerChunk(_)), "{e}");
         let e = decode_flower(&png).unwrap_err();
         assert!(matches!(e, Error::FlowerChunk(_)), "{e}");
+        // a flower whose CRC is wrong is damaged too, not a canvas without a flower
+        let mut png = encode_canvas(&c);
+        png[data + 3] ^= 1;
+        let e = decode_canvas(&png).unwrap_err();
+        assert!(e.to_string().contains("CRC"), "{e}");
+    }
+
+    /// A PNG of `canvas()` with these flower chunks before and after its pixels, as another
+    /// program might write one.
+    fn png_with_flowers(before: &[&str], after: &[&str]) -> Vec<u8> {
+        let c = canvas();
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, c.width as u32, c.height as u32);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut w = enc.write_header().unwrap();
+        for text in before {
+            w.write_chunk(FLOWER_CHUNK, &deflate(text)).unwrap();
+        }
+        w.write_image_data(&c.pixels).unwrap();
+        for text in after {
+            w.write_chunk(FLOWER_CHUNK, &deflate(text)).unwrap();
+        }
+        w.finish().unwrap();
+        out
+    }
+
+    #[test]
+    fn a_flower_after_the_pixels_is_found_and_two_flowers_are_an_error() {
+        let one = r#"{"width": 7, "height": 5, "petals": []}"#;
+        let behind = decode_canvas(&png_with_flowers(&[], &[one])).unwrap();
+        assert_eq!(behind.flower.as_deref(), Some(one));
+        for (before, after) in [(&[one, one][..], &[][..]), (&[one][..], &[one][..])] {
+            let e = decode_canvas(&png_with_flowers(before, after)).unwrap_err();
+            assert!(e.to_string().contains("two flowers"), "{e}");
+        }
     }
 }
