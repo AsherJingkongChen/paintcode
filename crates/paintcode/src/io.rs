@@ -75,8 +75,8 @@ fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
 /// image keeps its tones; Pillow instead clips 16-bit grey at 255, which turns most of such an
 /// image white.
 ///
-/// The size in the header is checked against [`MAX_PIXELS`] before anything is allocated. A flower
-/// that is there but cannot be read is an error: the file has been damaged.
+/// The size in the header is checked against the pixel limit (16384 x 16384) before anything is
+/// allocated. A flower that is there but cannot be read is an error: the file has been damaged.
 pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
     let mut reader = png_reader(bytes)?;
     let (w, h) = (reader.info().width as usize, reader.info().height as usize);

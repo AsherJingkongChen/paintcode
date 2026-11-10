@@ -16,10 +16,16 @@
 //! | `render` | render | error, math           | dabs to pixels, coats, paper grain, downsampling|
 //! | `petal`  | flesh  | profile, math, flower, render | petals to dabs, carrying paint          |
 //! | `io`     | files  | error, flower, render | encoders and decoders, in pairs                 |
+//! | `python` | face   | everything            | `paintcode._core`, with the `python` feature    |
 //!
-//! This file only conducts: [`paint_flower`] walks the petals of a [`Flower`] over a [`WetCanvas`],
-//! [`flower_to_coat`] keeps the dabs it lays, and [`lay_coat`] lays them again. Dried, a wet canvas
-//! is the [`Canvas`]: [`flower_to_canvas`] and [`coat_to_canvas`].
+//! This file only conducts: [`flower_to_canvas`] walks the petals of a [`Flower`] over a wet canvas
+//! and dries it into a [`Canvas`], [`flower_to_coat`] keeps the dabs it lays, and
+//! [`coat_to_canvas`] lays them again.
+//!
+//! The public API is what Python can do: the modules are private, and only the nouns, the
+//! functions between them and the encoders are exported, with [`profile`] for the benches and,
+//! with the `python` feature, `stub_info` for `src/bin/stub_gen.rs`. Tests that reach inside a
+//! module live in `src/tests/`.
 
 #![deny(
     clippy::unwrap_used,
@@ -30,23 +36,30 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::panic))]
 #![feature(portable_simd)]
 
-pub mod error;
-pub mod flower;
-pub mod io;
-pub mod math;
-pub mod petal;
+mod error;
+mod flower;
+mod io;
+mod math;
+mod petal;
 pub mod profile;
-pub mod render;
+#[cfg(feature = "python")]
+mod python;
+mod render;
 #[cfg(test)]
 mod tests;
 
 pub use error::{Error, Result};
-pub use flower::{Flower, Petal};
+pub use flower::Flower;
 pub use io::{
     decode_canvas, decode_coat, decode_flower, encode_canvas, encode_coat, encode_flower,
 };
-pub use petal::{Options, Painted};
-pub use render::{Canvas, Coat, Spans, WetCanvas};
+#[cfg(feature = "python")]
+pub use python::stub_info;
+pub use render::{Canvas, Coat};
+
+use flower::Petal;
+use petal::Options;
+use render::WetCanvas;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOpts {
@@ -54,16 +67,24 @@ pub struct RenderOpts {
     pub scale: f64,
     /// Paint at N times the size and box-filter down; crisp hard edges at 2 or 3.
     pub supersample: i64,
-    pub petal: Options,
+    /// How fast, never what it looks like: tests turn these to check fast paths against slow ones.
+    pub(crate) petal: Options,
+}
+
+impl RenderOpts {
+    /// Options at this scale and supersampling.
+    pub fn new(scale: f64, supersample: i64) -> RenderOpts {
+        RenderOpts {
+            scale,
+            supersample,
+            petal: Options::default(),
+        }
+    }
 }
 
 impl Default for RenderOpts {
     fn default() -> Self {
-        RenderOpts {
-            scale: 1.0,
-            supersample: 1,
-            petal: Options::default(),
-        }
+        RenderOpts::new(1.0, 1)
     }
 }
 
@@ -90,7 +111,7 @@ pub fn flower_to_canvas(flower: &Flower, opts: &RenderOpts) -> Result<Canvas> {
 }
 
 /// Paint a flower on a blank canvas, and leave it wet: float, with its wetness.
-pub fn paint_flower(flower: &Flower, opts: &RenderOpts) -> Result<WetCanvas> {
+pub(crate) fn paint_flower(flower: &Flower, opts: &RenderOpts) -> Result<WetCanvas> {
     paint(flower, opts, false)
 }
 
@@ -115,7 +136,7 @@ pub fn coat_to_canvas(coat: &Coat) -> Result<Canvas> {
 
 /// Lay a coat's dabs on a blank canvas, and leave it wet: the same, bit for bit, as
 /// [`paint_flower`] on the flower that made the coat.
-pub fn lay_coat(coat: &Coat) -> Result<WetCanvas> {
+pub(crate) fn lay_coat(coat: &Coat) -> Result<WetCanvas> {
     render::lay_coat(coat)
 }
 

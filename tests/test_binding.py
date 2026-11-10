@@ -1,7 +1,6 @@
-"""The Python face of the engine. The engine itself is tested in Rust (crates/paintcode/tests);
+"""The Python face of the engine. The engine itself is tested in Rust (crates/paintcode/src/tests);
 these check what crosses the boundary: arguments, bytes, errors, files."""
 import ast
-import inspect
 import io
 import json
 import subprocess
@@ -23,8 +22,13 @@ def pixels(png: bytes) -> np.ndarray:
     return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), np.int16)
 
 
-def test_the_canvas_is_the_golden_painting():
-    got = pixels(paintcode.flower_to_canvas(flower=FLOWER).png())
+def seen(canvas, tmp_path: Path, name: str = "seen") -> np.ndarray:
+    """What anyone sees of a canvas: the PNG save_canvas writes, read back with Pillow."""
+    return pixels(paintcode.save_canvas(canvas=canvas, pathname=tmp_path / name).read_bytes())
+
+
+def test_the_canvas_is_the_golden_painting(tmp_path):
+    got = seen(paintcode.flower_to_canvas(flower=FLOWER), tmp_path)
     want = pixels((GOLDEN / "features.png").read_bytes())
     assert np.abs(got - want).max() <= 1
 
@@ -43,8 +47,9 @@ def test_a_flower_rides_on_its_canvas(tmp_path):
     assert back == FLOWER and list(back) == list(FLOWER)
     assert paintcode.flower_off_canvas(on) == FLOWER
     # the loader of a canvas takes only the pixels, and any PNG reader sees them
-    assert paintcode.load_canvas(path).pixels() == canvas.pixels()
-    assert (pixels(path.read_bytes()) == pixels(canvas.png())).all()
+    plain = seen(canvas, tmp_path, "plain")
+    assert (seen(paintcode.load_canvas(path), tmp_path, "back") == plain).all()
+    assert (pixels(path.read_bytes()) == plain).all()
     with pytest.raises(ValueError, match="no flower on this canvas"):
         paintcode.flower_off_canvas(paintcode.load_canvas(path))
 
@@ -74,7 +79,8 @@ def test_the_coat_file_has_one_splat_per_dab_and_reads_back(tmp_path):
     # 17 floats in the 3DGS layout, then the dab exactly: 9 doubles and its colour
     assert n == len(coat) > 100 and body == n * (17 * 4 + 9 * 8 + 3 * 4)
     again = paintcode.coat_to_canvas(paintcode.load_coat(path))
-    assert again.pixels() == paintcode.flower_to_canvas(flower=FLOWER, supersample=2).pixels()
+    want = paintcode.flower_to_canvas(flower=FLOWER, supersample=2)
+    assert (seen(again, tmp_path, "again") == seen(want, tmp_path, "want")).all()
 
 
 def test_mistakes_are_value_errors_that_name_the_petal_or_the_file(tmp_path):
@@ -126,79 +132,61 @@ def test_a_hostile_png_is_an_error_and_python_lives_on(tmp_path):
 
 
 def test_a_grey_or_rgba_png_opens_like_rgb(tmp_path):
-    rgb = Image.open(io.BytesIO(paintcode.flower_to_canvas(flower=FLOWER).png())).convert("RGB")
-    want = np.asarray(rgb).tobytes()
+    canvas = paintcode.flower_to_canvas(flower=FLOWER)
+    rgb = Image.open(paintcode.save_canvas(canvas=canvas, pathname=tmp_path / "rgb")).convert("RGB")
+    want = np.asarray(rgb, np.int16)
     for mode in ("RGBA", "L", "P"):
         im = rgb.convert(mode)
         im.save(tmp_path / f"{mode}.png")
-        got = paintcode.load_canvas(tmp_path / f"{mode}.png").pixels()
-        assert got == np.asarray(im.convert("RGB")).tobytes(), mode
-    assert paintcode.load_canvas(tmp_path / "RGBA.png").pixels() == want
+        got = seen(paintcode.load_canvas(tmp_path / f"{mode}.png"), tmp_path, f"{mode}-back")
+        assert (got == np.asarray(im.convert("RGB"), np.int16)).all(), mode
+    assert (seen(paintcode.load_canvas(tmp_path / "RGBA.png"), tmp_path, "rgba") == want).all()
 
 
 def test_more_than_one_parameter_means_keywords():
     with pytest.raises(TypeError):
         paintcode.flower_to_canvas(FLOWER)
     with pytest.raises(TypeError):
-        paintcode.flower_to_canvas(flower=FLOWER).peek(1, 2)
+        paintcode.flower_to_canvas(flower=FLOWER).peek(1, 2, 3, 4)
     paintcode.load_flower(GOLDEN / "features.flower.json")    # one parameter: positional is fine
 
 
-def test_a_canvas_can_be_peeked_and_cropped():
+def test_a_canvas_can_be_peeked_and_cropped(tmp_path):
     canvas = paintcode.flower_to_canvas(flower=FLOWER)
-    image = pixels(canvas.png())
+    image = seen(canvas, tmp_path)
     assert (canvas.width, canvas.height) == (160, 90)
-    assert canvas.peek(x=31, y=7) == tuple(image[7, 31])
+    assert canvas.peek(x=31, y=7, width=1, height=1) == tuple(image[7, 31])
+    # each channel's median, the upper one of an even count
+    box = image[5:25, 30:80].reshape(-1, 3)
+    assert canvas.peek(x=30, y=5, width=50, height=20) == tuple(np.sort(box, 0)[len(box) // 2])
     part = canvas.crop(x=30, y=5, width=50, height=20)
     assert (part.width, part.height) == (50, 20)
-    assert (pixels(part.png()) == image[5:25, 30:80]).all()
-    for x, y, w, h in [(150, 0, 20, 10), (0, 0, 0, 10)]:
+    assert (seen(part, tmp_path, "part") == image[5:25, 30:80]).all()
+    for x, y, w, h in [(150, 0, 20, 10), (0, 0, 0, 10), (160, 0, 1, 1)]:
         with pytest.raises(ValueError, match="does not fit"):
             canvas.crop(x=x, y=y, width=w, height=h)
-    with pytest.raises(ValueError, match="outside"):
-        canvas.peek(x=160, y=0)
+        with pytest.raises(ValueError, match="does not fit"):
+            canvas.peek(x=x, y=y, width=w, height=h)
 
 
-def test_the_brushes_show_their_fields():
+def test_the_brushes_show_their_fields(tmp_path):
     assert {"ink", "filbert", "blender"} <= set(paintcode.BRUSHES)
     filbert = paintcode.BRUSHES["filbert"]
     assert filbert["size"] == 5.2 and filbert["hardness"] == 0.8 and filbert["angle"] is None
     # a brush's fields written out in the flower paint the same as naming the brush
     by_name = dict(FLOWER, petals=[{"brush": "filbert", "color": "#a33", "points": [[10, 10], [150, 80]]}])
     by_fields = dict(FLOWER, petals=[{"brush": filbert, "color": "#a33", "points": [[10, 10], [150, 80]]}])
-    assert (paintcode.flower_to_canvas(flower=by_name).pixels()
-            == paintcode.flower_to_canvas(flower=by_fields).pixels())
+    assert (seen(paintcode.flower_to_canvas(flower=by_name), tmp_path, "name")
+            == seen(paintcode.flower_to_canvas(flower=by_fields), tmp_path, "fields")).all()
 
 
-def test_the_stub_says_what_the_module_has():
-    """_core.pyi is written by hand (pyo3-stub-gen does not support pyo3 0.30 yet), so it is
-    checked here: the same functions and classes, the same parameters, positional or keyword-only
-    alike."""
+def test_the_stub_names_what_the_module_has():
+    """_core.pyi is generated from src/python.rs, signatures and all. What the generator cannot see
+    is whether the module registers what the attributes declare, so the names are checked here:
+    every function, class and value in the stub is in the module that loads, and nothing else is."""
     from paintcode import _core
     stub = ast.parse(Path(_core.__file__).with_name("_core.pyi").read_text())
-    funcs = {n.name: n for n in stub.body if isinstance(n, ast.FunctionDef)}
-    classes = {n.name: n for n in stub.body if isinstance(n, ast.ClassDef)}
-    names = {n.target.id for n in stub.body if isinstance(n, ast.AnnAssign)}
-    real = {k for k, v in vars(_core).items() if callable(v) and not k.startswith("_")}
-    assert set(funcs) | set(classes) == real
-    assert {"BRUSHES", "__version__"} <= names and all(hasattr(_core, n) for n in names)
-
-    def same(node, real_fn, is_method):
-        want = [(a.arg, "POSITIONAL_OR_KEYWORD") for a in node.args.args[is_method:]]
-        want += [(a.arg, "KEYWORD_ONLY") for a in node.args.kwonlyargs]
-        params = list(inspect.signature(real_fn).parameters.values())[is_method:]
-        got = [(p.name, p.kind.name) for p in params]
-        assert got == want, node.name
-
-    for name, node in funcs.items():
-        same(node, getattr(_core, name), 0)
-    for name, node in classes.items():
-        cls = getattr(_core, name)
-        for m in node.body:
-            if not isinstance(m, ast.FunctionDef):
-                continue
-            attr = inspect.getattr_static(cls, m.name)
-            if isinstance(attr, property) or type(attr).__name__ == "getset_descriptor":
-                continue
-            if not m.name.startswith("__"):
-                same(m, getattr(cls, m.name), 1)
+    declared = {n.name for n in stub.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+    declared |= {n.target.id for n in stub.body if isinstance(n, ast.AnnAssign)}
+    assert declared == {k for k in vars(_core) if not k.startswith("_")} | {"__version__"}
+    assert all(hasattr(_core, n) for n in declared)

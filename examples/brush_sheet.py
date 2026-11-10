@@ -1,11 +1,10 @@
 """Every brush drawing the same S-curve, pressure rising then falling."""
 import math
-import io
 from pathlib import Path
 
 from PIL import Image, ImageDraw   # only for the labels; the painting is paintcode's
 
-from paintcode import BRUSHES, flower_to_canvas, save_flower
+from paintcode import BRUSHES, flower_to_canvas, save_canvas, save_flower
 
 names = list(BRUSHES)
 W, ROW = 720, 70
@@ -29,7 +28,7 @@ flower = {"width": W, "height": 40 + ROW * len(names), "background": "#f4efe6", 
           "petals": petals}
 out = Path(__file__).with_suffix("")
 save_flower(flower=flower, pathname=out)
-img = Image.open(io.BytesIO(flower_to_canvas(flower=flower).png())).convert("RGB")
+img = Image.open(save_canvas(canvas=flower_to_canvas(flower=flower), pathname=out)).convert("RGB")
 d = ImageDraw.Draw(img)
 for i, name in enumerate(names):
     d.text((24, 40 + i * ROW - 6), name, fill=(80, 84, 100))

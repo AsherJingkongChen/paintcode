@@ -50,7 +50,8 @@ fn buffer(len: usize, what: &str) -> Result<Vec<f32>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spans {
     /// Every pixel of the 3-sigma square, as the numpy engine of 0.4 visited them. Kept as the
-    /// reference that the fast path is tested against.
+    /// reference that the fast path is tested against, so only tests choose it.
+    #[cfg_attr(not(test), allow(dead_code))]
     Square,
     /// Only the rows and columns the q <= 9 ellipse can touch. Outside the ellipse the kernel is
     /// exactly zero and a zero dab leaves a pixel bit-for-bit unchanged, so the result is the
@@ -588,12 +589,14 @@ impl WetCanvas {
     }
 
     /// The colour of the pixel at (x, y).
+    #[cfg(test)]
     pub fn pixel(&self, x: usize, y: usize) -> [f32; 3] {
         let i = y * self.width + x;
         [self.planes[0][i], self.planes[1][i], self.planes[2][i]]
     }
 
     /// Paint the pixel at (x, y) one colour.
+    #[cfg(test)]
     pub fn set_pixel(&mut self, x: usize, y: usize, rgb: [f32; 3]) {
         let i = y * self.width + x;
         for (plane, v) in self.planes.iter_mut().zip(rgb) {

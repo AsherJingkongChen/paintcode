@@ -6,20 +6,30 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# cargo bench runs benches/ only, not the unit tests in bench mode
 [lib]
+# rlib for the tests and benches, cdylib for maturin to load as paintcode._core
+crate-type = ["cdylib", "rlib"]
+# cargo bench runs benches/ only, not the unit tests in bench mode
 bench = false
 
 [dependencies]
-png.workspace = true
-rayon.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
+png = "0.18"
+rayon = "1"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+thiserror = "2"
+pyo3 = { version = "0.30", features = ["abi3-py310"], optional = true }
+# writes python/paintcode/_core.pyi from the attributes in src/python.rs; infer_signature prints
+# the defaults of parameters, the other default features are types paintcode does not use
+pyo3-stub-gen = { version = "0.23.2", default-features = false, features = ["infer_signature"], optional = true }
+
+[build-dependencies]
+# tells src/bin/stub_gen.rs where libpython is; see build.rs
+pyo3-build-config = { version = "0.30", optional = true }
 
 [dev-dependencies]
-rayon.workspace = true
-flate2.workspace = true
-criterion.workspace = true
+flate2 = "1"
+# terminal output only, no plots
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]
 name = "paint"
@@ -28,8 +38,16 @@ harness = false
 [features]
 # time every stage of a paint; see src/profile.rs and benches/stages.rs
 profile = []
+# the Python module paintcode._core (src/python.rs); maturin turns it on, see pyproject.toml
+python = ["dep:pyo3", "dep:pyo3-stub-gen", "dep:pyo3-build-config"]
 
 [[bench]]
 name = "stages"
 harness = false
 required-features = ["profile"]
+
+# writes the type stub and the README that ends in it; see src/bin/stub_gen.rs
+[[bin]]
+name = "stub_gen"
+path = "src/bin/stub_gen.rs"
+required-features = ["python"]

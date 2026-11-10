@@ -7,7 +7,11 @@ mod brush;
 mod color;
 mod parse;
 
-pub use brush::{BRUSH_NAMES, Brush, brush};
+#[cfg(feature = "python")]
+pub use brush::BRUSH_NAMES;
+pub use brush::Brush;
+#[cfg(any(test, feature = "python"))]
+pub use brush::brush;
 pub use color::parse_color;
 pub use parse::{Color, Flower, POINT_MARGIN, Petal};
 

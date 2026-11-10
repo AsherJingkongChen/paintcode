@@ -14,10 +14,21 @@ pub struct Coat {
     pub width: usize,
     pub height: usize,
     pub supersample: usize,
-    pub background: [f32; 3],
+    pub(crate) background: [f32; 3],
     /// Keys the paper grain; the jitter is already in the dabs.
-    pub seed: i64,
-    pub dabs: Vec<Dab>,
+    pub(crate) seed: i64,
+    pub(crate) dabs: Vec<Dab>,
+}
+
+impl Coat {
+    /// The number of dabs.
+    pub fn len(&self) -> usize {
+        self.dabs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.dabs.is_empty()
+    }
 }
 
 /// Dabs whose footprints are evaluated at once when a coat is laid.
