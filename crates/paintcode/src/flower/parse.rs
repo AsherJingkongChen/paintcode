@@ -48,7 +48,7 @@ const PETAL_MAY: [&str; 2] = ["id", "group"];
 
 impl Flower {
     /// A flower from what a painter wrote. Every key is written: nothing has a default.
-    pub fn from_potpourri(v: &Potpourri) -> Result<Flower> {
+    pub(crate) fn from_potpourri(v: &Potpourri) -> Result<Flower> {
         let root = v
             .as_map()
             .ok_or_else(|| Error::Flower(format!("a flower is a dict, got {v}")))?;
@@ -124,7 +124,7 @@ impl Flower {
 
     /// The flower written out in full: every petal with its whole brush, every colour as numbers.
     /// [`Flower::from_potpourri`] takes it back as it is.
-    pub fn to_potpourri(&self) -> Potpourri {
+    pub(crate) fn to_potpourri(&self) -> Potpourri {
         let rgb = |c: [f32; 3]| Potpourri::List(c.map(|v| Potpourri::Num(v as f64)).to_vec());
         let petals = self
             .petals
