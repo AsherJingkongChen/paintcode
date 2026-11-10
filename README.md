@@ -1,4 +1,4 @@
-<!-- Written by src/bin/stub_gen.rs from README.template.md and the stub; change those. -->
+<!-- stub_gen: written from README.template.md and crates/paintcode/src/python.rs; change those, not this file -->
 # paintcode
 
 A small dab engine for painting from code.

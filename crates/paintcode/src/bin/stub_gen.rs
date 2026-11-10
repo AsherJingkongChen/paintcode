@@ -15,7 +15,7 @@ use std::error::Error;
 use std::fs;
 
 /// The line of `README.template.md` that the stub takes the place of.
-const MARK: &str = "<!-- python/paintcode/_core.pyi -->\n";
+const MARK: &str = "<!-- stub_gen: python/paintcode/_core.pyi -->\n";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let stub = paintcode::stub_info()?;
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err(format!("README.template.md must hold the line {MARK:?} once").into());
     }
     let readme = format!(
-        "<!-- Written by src/bin/stub_gen.rs from README.template.md and the stub; change those. -->\n{}",
+        "<!-- stub_gen: written from README.template.md and crates/paintcode/src/python.rs; change those, not this file -->\n{}",
         template.replace(MARK, &format!("```python\n{pyi}```\n"))
     );
     let readme_path = root.join("README.md");

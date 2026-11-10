@@ -109,4 +109,4 @@ The ideas of paint depletion, colour pickup and short-stroke painting were learn
 
 Functions over data, said in full by the type stub, [`python/paintcode/_core.pyi`](python/paintcode/_core.pyi), which follows: what each one takes, gives back and does. There is no command line, and the package has no dependencies of its own.
 
-<!-- python/paintcode/_core.pyi -->
+<!-- stub_gen: python/paintcode/_core.pyi -->
