@@ -12,8 +12,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - name: The pinned nightly from rust-toolchain.toml
         run: rustup toolchain install
       # target/ and the registry, keyed by the toolchain and Cargo.lock
@@ -34,7 +34,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: The pinned nightly from rust-toolchain.toml
         run: rustup toolchain install
       # target/ and the registry, keyed by the toolchain and Cargo.lock
