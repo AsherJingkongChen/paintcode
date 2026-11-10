@@ -13,7 +13,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      # setup-uv tags only full versions; there is no moving v10
+      - uses: astral-sh/setup-uv@v10.3.3
       - name: The pinned nightly from rust-toolchain.toml
         run: rustup toolchain install
       # target/ and the registry, keyed by the toolchain and Cargo.lock
