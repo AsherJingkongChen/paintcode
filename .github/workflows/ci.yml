@@ -16,6 +16,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: The pinned nightly from rust-toolchain.toml
         run: rustup toolchain install
+      # target/ and the registry, keyed by the toolchain and Cargo.lock
+      - uses: Swatinem/rust-cache@v2
       - name: Engine tests (behaviour, golden snapshots, fast path = reference path, layering)
         run: cargo test --release -p paintcode -- --include-ignored
       - name: The golden snapshots it wrote are the ones committed
@@ -35,6 +37,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: The pinned nightly from rust-toolchain.toml
         run: rustup toolchain install
+      # target/ and the registry, keyed by the toolchain and Cargo.lock
+      - uses: Swatinem/rust-cache@v2
       - name: Everything builds, the python feature and the benches included
         run: cargo check --workspace --all-targets --all-features
       - name: Clippy, warnings as errors; no unwrap, panic, todo or unimplemented outside tests
