@@ -549,7 +549,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "paintcode"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "criterion",
  "flate2",
@@ -609,8 +609,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 [[package]]
 name = "png"
 version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61"
+source = "git+https://github.com/AsherJingkongChen/image-png?rev=e8adf4b2463a98b67446346d6e46733d7353eec7#e8adf4b2463a98b67446346d6e46733d7353eec7"
 dependencies = [
  "bitflags",
  "crc32fast",

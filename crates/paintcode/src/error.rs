@@ -22,7 +22,7 @@ pub enum Error {
     /// A flower on a PNG that cannot be read: its compressed text is broken, longer than 64 MiB
     /// or not UTF-8. The file has been damaged; the error says it is the flower.
     #[error("the flower on this PNG is unreadable: {0}")]
-    FlowerChunk(#[source] png::DecodingError),
+    FlowerChunk(String),
     /// A canvas larger than the limit on one: 2^28 pixels, counted after scale and supersample.
     #[error("{0}")]
     Size(String),

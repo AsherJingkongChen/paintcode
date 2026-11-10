@@ -27,8 +27,8 @@ This file is for painting with it and ends with the API. [DESIGN.md](DESIGN.md) 
 ## Install
 
 ```bash
-pip install .               # builds the engine (needs a Rust toolchain)
-uv sync                     # for development: the package, pytest, numpy and Pillow
+uv add ./paintcode          # for use, from a clone: builds the engine (needs rustup)
+uv sync                     # for development, in the clone: the package, pytest, numpy and Pillow
 ```
 
 The package has no dependencies of its own, and no command line.
