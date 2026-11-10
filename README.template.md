@@ -31,6 +31,8 @@ pip install .               # builds the engine (needs a Rust toolchain)
 uv sync                     # for development: the package, pytest, numpy and Pillow
 ```
 
+The package has no dependencies of its own, and no command line.
+
 ## Paint
 
 ```python
@@ -107,6 +109,6 @@ The ideas of paint depletion, colour pickup and short-stroke painting were learn
 
 ## API
 
-Functions over data, said in full by the type stub, [`python/paintcode/_core.pyi`](python/paintcode/_core.pyi), which follows: what each one takes, gives back and does. There is no command line, and the package has no dependencies of its own.
+The type stub, [`python/paintcode/_core.pyi`](python/paintcode/_core.pyi):
 
 <!-- stub_gen: python/paintcode/_core.pyi -->
