@@ -23,8 +23,9 @@
 //! [`coat_to_canvas`] lays them again.
 //!
 //! The public API is what Python can do: the modules are private, and only the nouns, the
-//! functions between them and the encoders are exported, with [`profile`] for the benches. Tests
-//! that reach inside a module live in `src/tests/`.
+//! functions between them and the encoders are exported, with [`profile`] for the benches and,
+//! with the `python` feature, `stub_info` for `src/bin/stub_gen.rs`. Tests that reach inside a
+//! module live in `src/tests/`.
 
 #![deny(
     clippy::unwrap_used,
@@ -52,6 +53,8 @@ pub use flower::Flower;
 pub use io::{
     decode_canvas, decode_coat, decode_flower, encode_canvas, encode_coat, encode_flower,
 };
+#[cfg(feature = "python")]
+pub use python::stub_info;
 pub use render::{Canvas, Coat};
 
 use flower::Petal;

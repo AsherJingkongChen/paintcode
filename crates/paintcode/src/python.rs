@@ -1,17 +1,60 @@
 //! `paintcode._core`: the engine, seen from Python. This is the whole Python package; the files
-//! in `python/paintcode/` only re-export it and describe it (`_core.pyi`).
+//! in `python/paintcode/` only re-export it.
 //!
-//! A flower is a dict (anything `json.dumps` takes). A load_ takes the path of a file; a save_
-//! takes a pathname, the path without its suffix, and adds the suffix of what it writes. Both are a
-//! str or an `os.PathLike`, and the files are read and written here, in Rust. A function with more than one parameter takes them
-//! by keyword only.
+//! What Python reads is written here once: [`DOC`] is the module's docstring, and each doc comment
+//! on a function or class below is its docstring. The `gen_stub` attributes turn the same
+//! signatures and docs into the type stub, `python/paintcode/_core.pyi`, which
+//! `src/bin/stub_gen.rs` writes, with the README that ends in it.
+//!
+//! A flower is a dict (anything `json.dumps` takes). The files are read and written here, in Rust.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::{Error, Flower, RenderOpts, io};
+use crate::{Error, RenderOpts, io};
 use pyo3::exceptions::{PyMemoryError, PyValueError};
 use pyo3::prelude::*;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
+use pyo3_stub_gen::runtime::PyModuleTypeAliasExt;
 use serde_json::Value;
+
+/// The module's docstring, at run time and in the stub.
+const DOC: &str = "\
+The paintcode engine, in Rust: functions over data. Each noun is a stage of a painting, a
+function takes one stage to the next, and nothing keeps state between calls. _to_ turns one
+thing into another; _on_ and _off_ put a flower on a canvas and take it off.
+
+A load_ takes the path of a file and tells formats apart by its bytes, not its name; a save_
+takes a pathname, the path without a suffix, adds the suffix of what it writes and returns the
+path written. A function with more than one parameter takes them by keyword only.
+
+A mistake raises ValueError with a message that names the petal, the field or the file, or the
+size of a canvas past its limit (2^28 pixels); only memory that is not there raises MemoryError.";
+
+pyo3_stub_gen::module_doc!("paintcode._core", "{}", DOC);
+
+pyo3_stub_gen::type_alias!(
+    "paintcode._core",
+    Flower = HashMap<String, Py<PyAny>>,
+    "A flower, as a dict: anything json.dumps takes."
+);
+
+pyo3_stub_gen::module_variable!(
+    "paintcode._core",
+    "BRUSHES",
+    HashMap<String, HashMap<String, Py<PyAny>>>
+);
+pyo3_stub_gen::module_variable!("paintcode._core", "__version__", String);
+
+/// The type stub of `paintcode._core`, for `src/bin/stub_gen.rs`. It reads the pyproject.toml at
+/// the root of the repository, two levels above this crate, not the one beside its Cargo.toml
+/// where `define_stub_info_gatherer!` would look.
+pub fn stub_info() -> pyo3_stub_gen::Result<pyo3_stub_gen::StubInfo> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()?;
+    pyo3_stub_gen::StubInfo::from_pyproject_toml(root.join("pyproject.toml"))
+}
 
 /// A Python exception for an engine error: MemoryError when the memory is not there, ValueError
 /// for everything a caller can fix, with the engine's message.
@@ -42,12 +85,12 @@ fn file_error(path: &Path, e: Error) -> PyErr {
 
 /// A flower from its dict, checked: what the engine would refuse is refused here, before any file
 /// is written or any pixel is painted.
-fn to_flower(py: Python<'_>, flower: &Bound<'_, PyAny>) -> PyResult<Flower> {
+fn to_flower(py: Python<'_>, flower: &Bound<'_, PyAny>) -> PyResult<crate::Flower> {
     let text: String = py
         .import("json")?
         .call_method1("dumps", (flower,))?
         .extract()?;
-    Flower::from_json(&text).map_err(value_error)
+    crate::Flower::from_json(&text).map_err(value_error)
 }
 
 /// JSON to a dict, keys in their written order.
@@ -65,9 +108,11 @@ fn opts(scale: f64, supersample: i64) -> RenderOpts {
 }
 
 /// The pixels you see, 8-bit RGB, and the flower on them if one was put there.
+#[gen_stub_pyclass(module = "paintcode._core")]
 #[pyclass(frozen, module = "paintcode")]
 struct Canvas(crate::Canvas);
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl Canvas {
     #[getter]
@@ -153,10 +198,12 @@ impl Canvas {
     }
 }
 
-/// Every dab a flower laid, in order: what coat_to_canvas lays again.
+/// Every dab a flower laid, in order: what coat_to_canvas lays again. len() counts the dabs.
+#[gen_stub_pyclass(module = "paintcode._core")]
 #[pyclass(frozen, module = "paintcode")]
 struct Coat(crate::Coat);
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl Coat {
     /// The canvas it makes, in pixels.
@@ -192,24 +239,35 @@ impl Coat {
 
 // ------------------------------------------------------------------------------------- files
 
-/// The flower in a `.flower.json`, or on a `.flower.png`. A PNG without a flower is an error.
+/// The flower in a .flower.json, or on a .flower.png; keys in their written order. A PNG with no
+/// flower on it is an error.
+#[gen_stub_pyfunction]
 #[pyfunction]
+#[gen_stub(override_return_type(type_repr = "Flower"))]
 fn load_flower<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyAny>> {
     let bytes = std::fs::read(&path)?;
     let flower = io::decode_flower(&bytes).map_err(|e| file_error(&path, e))?;
     to_dict(py, &flower.source)
 }
 
-/// Write a flower as JSON, one petal per line, at `pathname.flower.json`.
+/// Write a flower as JSON, one petal per line, at pathname.flower.json. A flower the engine would
+/// refuse is refused.
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (*, flower, pathname))]
-fn save_flower(py: Python<'_>, flower: &Bound<'_, PyAny>, pathname: PathBuf) -> PyResult<PathBuf> {
+fn save_flower(
+    py: Python<'_>,
+    #[gen_stub(override_type(type_repr = "Flower"))] flower: &Bound<'_, PyAny>,
+    pathname: PathBuf,
+) -> PyResult<PathBuf> {
     let flower = to_flower(py, flower)?;
     write(pathname, ".flower.json", &io::encode_flower(&flower))
 }
 
 /// The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes the
-/// flower). Any PNG opens: grey, palette, alpha and 16-bit images become 8-bit RGB.
+/// flower). A flower that is there but damaged is an error. Any PNG opens: grey, palette, alpha
+/// and 16-bit images become 8-bit RGB.
+#[gen_stub_pyfunction]
 #[pyfunction]
 fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
     let bytes = std::fs::read(&path)?;
@@ -220,7 +278,8 @@ fn load_canvas(path: PathBuf) -> PyResult<Canvas> {
     }))
 }
 
-/// Write a canvas as a PNG at `pathname.png`, or with its flower on it at `pathname.flower.png`.
+/// Write a canvas as a PNG at pathname.png, or with its flower on it at pathname.flower.png.
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (*, canvas, pathname))]
 fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, pathname: PathBuf) -> PyResult<PathBuf> {
@@ -234,7 +293,8 @@ fn save_canvas(py: Python<'_>, canvas: PyRef<'_, Canvas>, pathname: PathBuf) -> 
     write(pathname, suffix, &png)
 }
 
-/// The coat in a `.coat.ply`. A 3DGS file from elsewhere is not a coat and is refused.
+/// The coat in a .coat.ply. A 3DGS file from elsewhere is not a coat and is refused.
+#[gen_stub_pyfunction]
 #[pyfunction]
 fn load_coat(path: PathBuf) -> PyResult<Coat> {
     let bytes = std::fs::read(&path)?;
@@ -243,8 +303,11 @@ fn load_coat(path: PathBuf) -> PyResult<Coat> {
         .map_err(|e| file_error(&path, e))
 }
 
-/// Write a coat at `pathname.coat.ply`, a binary PLY in the 3DGS layout that any splat viewer
-/// opens, with every dab kept exactly, so load_coat gives the same coat back.
+/// Write a coat at pathname.coat.ply, a binary PLY in the 3D Gaussian Splatting layout (SH degree
+/// 0), which any splat viewer opens: paint order becomes depth, so the dabs composite in the order
+/// they were laid when looking at the plane. Every dab is also kept exactly, so load_coat gives the
+/// same coat back.
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (*, coat, pathname))]
 fn save_coat(py: Python<'_>, coat: PyRef<'_, Coat>, pathname: PathBuf) -> PyResult<PathBuf> {
@@ -256,11 +319,15 @@ fn save_coat(py: Python<'_>, coat: PyRef<'_, Coat>, pathname: PathBuf) -> PyResu
 // ------------------------------------------------------------------------------- transforms
 
 /// Paint a flower: its canvas.
+///
+/// scale paints larger: coordinates and brush sizes scale together.
+/// supersample paints at N times the size and box-filters down; 2 or 3 give crisp hard edges.
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (*, flower, scale = 1.0, supersample = 1))]
 fn flower_to_canvas(
     py: Python<'_>,
-    flower: &Bound<'_, PyAny>,
+    #[gen_stub(override_type(type_repr = "Flower"))] flower: &Bound<'_, PyAny>,
     scale: f64,
     supersample: i64,
 ) -> PyResult<Canvas> {
@@ -272,12 +339,13 @@ fn flower_to_canvas(
     Ok(Canvas(canvas))
 }
 
-/// Paint a flower and keep every dab it lays: its coat.
+/// Paint a flower and keep every dab it lays: its coat. Options as flower_to_canvas.
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (*, flower, scale = 1.0, supersample = 1))]
 fn flower_to_coat(
     py: Python<'_>,
-    flower: &Bound<'_, PyAny>,
+    #[gen_stub(override_type(type_repr = "Flower"))] flower: &Bound<'_, PyAny>,
     scale: f64,
     supersample: i64,
 ) -> PyResult<Coat> {
@@ -289,6 +357,7 @@ fn flower_to_coat(
 }
 
 /// Lay a coat's dabs again: the same canvas, bit for bit, as painting its flower.
+#[gen_stub_pyfunction]
 #[pyfunction]
 fn coat_to_canvas(py: Python<'_>, coat: PyRef<'_, Coat>) -> PyResult<Canvas> {
     let coat: &crate::Coat = &coat.0;
@@ -300,19 +369,22 @@ fn coat_to_canvas(py: Python<'_>, coat: PyRef<'_, Coat>) -> PyResult<Canvas> {
 
 /// The canvas with a flower on it, which save_canvas writes into the PNG. Any flower that was on
 /// it is replaced.
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (*, flower, canvas))]
 fn flower_on_canvas(
     py: Python<'_>,
-    flower: &Bound<'_, PyAny>,
+    #[gen_stub(override_type(type_repr = "Flower"))] flower: &Bound<'_, PyAny>,
     canvas: PyRef<'_, Canvas>,
 ) -> PyResult<Canvas> {
     let flower = to_flower(py, flower)?;
     Ok(Canvas(crate::flower_on_canvas(&flower, canvas.0.clone())))
 }
 
-/// The flower on a canvas. A canvas without one is an error.
+/// The flower on a canvas. A canvas with no flower on it is an error.
+#[gen_stub_pyfunction]
 #[pyfunction]
+#[gen_stub(override_return_type(type_repr = "Flower"))]
 fn flower_off_canvas<'py>(
     py: Python<'py>,
     canvas: PyRef<'py, Canvas>,
@@ -324,6 +396,8 @@ fn flower_off_canvas<'py>(
 #[pymodule]
 #[pyo3(name = "_core")]
 fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.setattr("__doc__", DOC)?;
+    m.add_type_alias::<Flower>()?;
     m.add_class::<Canvas>()?;
     m.add_class::<Coat>()?;
     m.add_function(wrap_pyfunction!(load_flower, m)?)?;

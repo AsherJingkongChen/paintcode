@@ -33,5 +33,6 @@ cache-keys = [
     { file = "Cargo.toml" },
     { file = "Cargo.lock" },
     { file = "crates/paintcode/Cargo.toml" },
+    { file = "crates/paintcode/build.rs" },
     { file = "crates/paintcode/src/**/*.rs" },
 ]

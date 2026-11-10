@@ -4,12 +4,13 @@ What changed between versions, newest first. How the engine works is in [DESIGN.
 
 ## 0.9
 
-Paints the same pixels as 0.8. The Python API loses two methods and changes one:
+Paints the same pixels as 0.8. The Python API loses two methods, changes one and gains a type:
 
 - `Canvas.png()` and `Canvas.pixels()` are gone. Nothing but the tests used them: a canvas is seen through the PNG `save_canvas` writes.
 - `Canvas.peek(x, y, width, height)` takes a rectangle and gives each channel's median over it, the upper one of an even count. It was one pixel; `width=1, height=1` is that pixel.
+- `Flower` is new: the type of a flower, `dict[str, Any]`, for type hints.
 
-The Rust side is one crate: the binding is the `python` feature of `crates/paintcode`, the modules are private, and the crate exports what Python can do (with `profile` for the benches). `RenderOpts::new` and `Coat::len` are new; `paint_flower`, `lay_coat` and the fields behind them are crate-only.
+The Rust side is one crate: the binding is the `python` feature of `crates/paintcode`, the modules are private, and the crate exports what Python can do (with `profile` for the benches). `RenderOpts::new` and `Coat::len` are new; `paint_flower`, `lay_coat` and the fields behind them are crate-only. The type stub is generated from the binding, and the README ends in it.
 
 ## 0.8
 

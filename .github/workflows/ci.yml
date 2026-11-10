@@ -24,6 +24,10 @@ jobs:
         run: uv sync --locked
       - name: Python tests (arguments, bytes, errors)
         run: uv run pytest -q
+      - name: The type stub and the README are the ones src/bin/stub_gen.rs writes from the binding
+        run: |
+          uv run cargo run --bin stub_gen --features python
+          git diff --exit-code -- README.md python/paintcode/_core.pyi
 
   check:
     runs-on: ubuntu-latest

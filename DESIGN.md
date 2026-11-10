@@ -40,7 +40,7 @@ The tests carry a separate, plain rasteriser that reads only the 3DGS fields of 
 
 ## The crate
 
-The engine is Rust: one crate, `crates/paintcode`, with one module per part of the engine. Built with its `python` feature it is the Python package's `paintcode._core`; `python/paintcode/` only re-exports it and carries the type stub `_core.pyi`, which is written by hand and checked by a test. The public Rust API is what Python can do and no more (with the `profile` timers for the benches): the modules are private, and the tests that reach inside them live inside the crate, in `src/tests/`. Dependencies point one way, from the leaf up, and `tests/layering.rs` fails if a module reaches back down the list.
+The engine is Rust: one crate, `crates/paintcode`, with one module per part of the engine. Built with its `python` feature it is the Python package's `paintcode._core`; `python/paintcode/` only re-exports it and carries the type stub `_core.pyi`. The stub is not written by hand: `src/bin/stub_gen.rs` makes it from the `gen_stub` attributes and doc comments in `src/python.rs`, and writes `README.md` as `README.template.md` with the stub at its end; CI runs it and fails when either file differs from what is committed. So a docstring changes in `src/python.rs`, and the README in `README.template.md`. The public Rust API is what Python can do and no more (with the `profile` timers for the benches): the modules are private, and the tests that reach inside them live inside the crate, in `src/tests/`. Dependencies point one way, from the leaf up, and `tests/layering.rs` fails if a module reaches back down the list.
 
 | module | part | may use | does |
 |---|---|---|---|
