@@ -3,17 +3,15 @@
 //!
 //! `encode_x` turns an `x` into bytes and `decode_x` turns the bytes back:
 //!
-//! | out               | back              | file           | what                                  |
-//! |-------------------|-------------------|----------------|---------------------------------------|
-//! | [`encode_flower`] | [`decode_flower`] | `.flower.json` | a flower, one petal per line          |
-//! | [`encode_canvas`] | [`decode_canvas`] | `.png`         | a canvas, 8-bit RGB, maybe its flower |
-//! | [`encode_coat`]   | [`decode_coat`]   | `.coat.ply`    | a coat: every dab, as 3D Gaussians    |
+//! | out               | back              | file        | what                                  |
+//! |-------------------|-------------------|-------------|---------------------------------------|
+//! | [`encode_flower`] | [`decode_flower`] | `.flower`   | a flower: bitcode inside zstd         |
+//! | [`encode_canvas`] | [`decode_canvas`] | `.png`      | a canvas, 8-bit RGB, maybe its flower |
+//! | [`encode_coat`]   | [`decode_coat`]   | `.coat.ply` | a coat: every dab, as 3D Gaussians    |
 //!
 //! [`decode_flower`] also reads the flower on a `.flower.png`.
 
-use std::io::{Cursor, Read, Write};
-
-use serde_json::Value;
+use std::io::Cursor;
 
 use crate::flower::Flower;
 use crate::render::{Canvas, Coat, Dab, MAX_PIXELS};
@@ -26,8 +24,11 @@ use crate::error::{Error, Result};
 /// reserved bit clear (`F`), and unsafe to copy (`L`), so a program that changes the pixels
 /// drops it instead of keeping a flower that no longer paints them.
 const FLOWER_CHUNK: png::chunk::ChunkType = png::chunk::ChunkType(*b"pcFL");
-/// The longest flower a PNG may carry, inflated.
+/// The most a flower may inflate to.
 const FLOWER_LIMIT: usize = 64 << 20;
+/// The four bytes a zstd frame starts with.
+const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
+const FLOWER_ZSTD_LEVEL: i32 = 19;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 fn is_png(bytes: &[u8]) -> bool {
@@ -35,7 +36,7 @@ fn is_png(bytes: &[u8]) -> bool {
 }
 
 /// A canvas as a PNG (8-bit RGB, lossless), with its flower if one is on it. The flower goes in a
-/// `pcFL` chunk before the pixels, where a reader finds it first: its JSON, deflated (zlib).
+/// `pcFL` chunk before the pixels, where a reader finds it first: the bytes of its `.flower`.
 pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
     let mut out = Vec::new();
     {
@@ -44,18 +45,17 @@ pub fn encode_canvas(canvas: &Canvas) -> Vec<u8> {
         enc.set_depth(png::BitDepth::Eight);
         enc.set_compression(png::Compression::Fast);
         let mut w = enc.write_header().expect("PNG header");
-        if let Some(text) = &canvas.flower {
-            w.write_chunk(FLOWER_CHUNK, &deflate(text))
-                .expect("PNG chunk");
+        if let Some(flower) = &canvas.flower {
+            w.write_chunk(FLOWER_CHUNK, flower).expect("PNG chunk");
         }
         w.write_image_data(&canvas.pixels).expect("PNG data");
     }
     out
 }
 
-/// The flower in a PNG's `pcFL` chunk, if it has one. A damaged flower is an error, and so are two
-/// flowers on one PNG: neither can be trusted to be the one that painted it.
-fn decode_flower_chunk(info: &png::Info) -> Result<Option<String>> {
+/// The flower in a PNG's `pcFL` chunk, if it has one, checked. A damaged flower is an error, and
+/// so are two flowers on one PNG: neither can be trusted to be the one that painted it.
+fn decode_flower_chunk(info: &png::Info) -> Result<Option<Vec<u8>>> {
     let mut chunks = info
         .subscribed_chunks
         .iter()
@@ -71,27 +71,8 @@ fn decode_flower_chunk(info: &png::Info) -> Result<Option<String>> {
             "its CRC does not match: the file is damaged".into(),
         ));
     }
-    let mut text = Vec::new();
-    flate2::read::ZlibDecoder::new(&chunk.data[..])
-        .take(FLOWER_LIMIT as u64 + 1)
-        .read_to_end(&mut text)
-        .map_err(|e| Error::FlowerChunk(format!("its zlib stream is broken ({e})")))?;
-    if text.len() > FLOWER_LIMIT {
-        return Err(Error::FlowerChunk(format!(
-            "it inflates past {} MiB",
-            FLOWER_LIMIT >> 20
-        )));
-    }
-    String::from_utf8(text)
-        .map(Some)
-        .map_err(|_| Error::FlowerChunk("it is not UTF-8".into()))
-}
-
-/// A flower's JSON as its `pcFL` chunk holds it: a zlib stream.
-fn deflate(text: &str) -> Vec<u8> {
-    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-    z.write_all(text.as_bytes()).expect("writing to a Vec");
-    z.finish().expect("writing to a Vec")
+    decode_flower_bytes(&chunk.data).map_err(|e| Error::FlowerChunk(e.to_string()))?;
+    Ok(Some(chunk.data.clone()))
 }
 
 fn png_reader(bytes: &[u8]) -> Result<png::Reader<Cursor<&[u8]>>> {
@@ -163,44 +144,42 @@ pub fn decode_canvas(bytes: &[u8]) -> Result<Canvas> {
 
 // ------------------------------------------------------------------------------------ flower
 
-/// A flower as JSON: compact, but one petal per line, so a diff shows which petals changed. Keys
-/// stay in the order they were written.
+/// A flower as a `.flower`: bitcode inside zstd. A `pcFL` chunk on a canvas holds the same bytes.
 pub fn encode_flower(flower: &Flower) -> Vec<u8> {
-    let Some(root) = flower.source.as_object() else {
-        return format!("{}\n", flower.source).into_bytes();
-    };
-    let mut out = String::from("{");
-    for (i, (k, v)) in root.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str(&Value::String(k.clone()).to_string());
-        out.push(':');
-        match v.as_array().filter(|a| k == "petals" && !a.is_empty()) {
-            Some(petals) => {
-                out.push_str("[\n");
-                let lines: Vec<String> = petals.iter().map(Value::to_string).collect();
-                out.push_str(&lines.join(",\n"));
-                out.push_str("\n]");
-            }
-            None => out.push_str(&v.to_string()),
-        }
-    }
-    out.push_str("}\n");
-    out.into_bytes()
+    zstd::bulk::compress(&bitcode::encode(flower), FLOWER_ZSTD_LEVEL)
+        .expect("zstd compresses any bytes into a Vec")
 }
 
-/// A flower, from a `.flower.json` or from the canvas it is on. A PNG must carry a flower: a
-/// canvas without one is an error, never a guess. A PNG is read as a canvas first, so the flower
-/// is found the one way [`decode_canvas`] finds it.
+/// A flower, from a `.flower` or from the canvas it is on. A PNG must carry a flower: a canvas
+/// without one is an error, never a guess. A PNG is read as a canvas first, so the flower is found
+/// the one way [`decode_canvas`] finds it.
 pub fn decode_flower(bytes: &[u8]) -> Result<Flower> {
-    let text = if is_png(bytes) {
-        decode_canvas(bytes)?.flower.ok_or(Error::NoFlower)?
-    } else {
-        String::from_utf8(bytes.to_vec())
-            .map_err(|_| Error::File("a flower is UTF-8 JSON".into()))?
-    };
-    Flower::from_json(&text)
+    if is_png(bytes) {
+        let bytes = decode_canvas(bytes)?.flower.ok_or(Error::NoFlower)?;
+        return decode_flower_bytes(&bytes);
+    }
+    decode_flower_bytes(bytes)
+}
+
+/// The two ways a `.flower` grows when it is read are both bounded: zstd inflates to at most
+/// [`FLOWER_LIMIT`] bytes, and bitcode lays out no element it has not read at least a bit for, so a
+/// flower's petals and points take a small multiple of that. The flower is then checked the way
+/// a painter's dict is, so a file can hold nothing a dict could not.
+pub(crate) fn decode_flower_bytes(bytes: &[u8]) -> Result<Flower> {
+    if !bytes.starts_with(&ZSTD_MAGIC) {
+        return Err(Error::File(
+            "not a flower: a .flower is a zstd frame, and this is not one".into(),
+        ));
+    }
+    let raw = zstd::bulk::decompress(bytes, FLOWER_LIMIT).map_err(|e| {
+        Error::File(format!(
+            "the flower does not inflate within {} MiB: {e}",
+            FLOWER_LIMIT >> 20
+        ))
+    })?;
+    let flower: Flower = bitcode::decode(&raw)
+        .map_err(|e| Error::File(format!("the flower does not decode: {e}")))?;
+    Flower::from_spec(&flower.to_spec())
 }
 
 // --------------------------------------------------------------------------------------- PLY
@@ -253,13 +232,11 @@ pub fn encode_coat(coat: &Coat) -> Vec<u8> {
     let n = coat.dabs.len();
     let s = 2.0 / width.max(height) as f64; // output px -> world units
     let bg = coat.background;
-    let meta = serde_json::json!({
-        "width": width,
-        "height": height,
-        "supersample": coat.supersample,
-        "seed": coat.seed,
-        "background": bg,
-    });
+    // key=value, floats written so that they parse back to the same bits
+    let meta = format!(
+        "width={width} height={height} supersample={} seed={} background={:?},{:?},{:?}",
+        coat.supersample, coat.seed, bg[0], bg[1], bg[2]
+    );
     let mut header = vec![
         "ply".to_string(),
         "format binary_little_endian 1.0".into(),
@@ -433,26 +410,27 @@ pub fn decode_coat(ply: &[u8]) -> Result<Coat> {
         .iter()
         .find_map(|c| c.strip_prefix(COAT_COMMENT))
         .ok_or_else(|| Error::File("this PLY is not a coat: it has no paintcode comment".into()))?;
-    let meta: Value = serde_json::from_str(meta)
-        .map_err(|e| Error::File(format!("bad paintcode comment: {e}")))?;
+    let value = |k: &str| -> Result<&str> {
+        meta.split(' ')
+            .find_map(|kv| kv.strip_prefix(k)?.strip_prefix('='))
+            .ok_or_else(|| Error::File(format!("no {k} in the paintcode comment")))
+    };
     let size = |k: &str| -> Result<usize> {
-        meta[k]
-            .as_u64()
+        value(k)?
+            .parse::<usize>()
+            .ok()
             .filter(|&v| v >= 1)
-            .map(|v| v as usize)
             .ok_or_else(|| Error::File(format!("bad {k} in the paintcode comment")))
     };
-    let background: [f32; 3] = meta["background"]
-        .as_array()
-        .filter(|a| a.len() == 3)
-        .and_then(|a| {
-            let v: Option<Vec<f32>> = a.iter().map(|c| c.as_f64().map(|f| f as f32)).collect();
-            v?.try_into().ok()
-        })
+    let background: [f32; 3] = value("background")?
+        .split(',')
+        .map(|c| c.parse::<f32>().ok())
+        .collect::<Option<Vec<f32>>>()
+        .and_then(|v| v.try_into().ok())
         .ok_or_else(|| Error::File("bad background in the paintcode comment".into()))?;
-    let seed = meta["seed"]
-        .as_i64()
-        .ok_or_else(|| Error::File("bad seed in the paintcode comment".into()))?;
+    let seed = value("seed")?
+        .parse::<i64>()
+        .map_err(|_| Error::File("bad seed in the paintcode comment".into()))?;
     let cols: Vec<&[f64]> = EXACT_FIELDS
         .iter()
         .map(|f| {
@@ -505,50 +483,43 @@ mod tests {
         assert_eq!(decode_canvas(&encode_canvas(&c)).unwrap(), c);
     }
 
+    /// A small flower, filled in the way every test flower is.
+    fn small() -> Flower {
+        crate::tests::flower(&serde_json::json!({"width": 7, "height": 5, "seed": -3,
+                                "petals": [{"points": [[1, 2.5]], "color": null}]}))
+    }
+
     #[test]
     fn a_flower_rides_on_the_png() {
-        let text = r#"{"petals":[{"points":[[1,2.5]],"color":null}],"seed":-3}"#;
-        let flower = Flower::from_json(text).unwrap();
-        let on = Canvas {
-            flower: Some(text.to_string()),
-            ..canvas()
-        };
+        let flower = small();
+        let on = crate::flower_on_canvas(&flower, canvas());
         let png = encode_canvas(&on);
         assert_eq!(decode_canvas(&png).unwrap(), on);
         assert_eq!(decode_flower(&png).unwrap(), flower);
-        assert_eq!(decode_flower(text.as_bytes()).unwrap(), flower);
+        assert_eq!(decode_flower(&encode_flower(&flower)).unwrap(), flower);
         let bare = encode_canvas(&canvas());
         assert!(matches!(decode_flower(&bare), Err(Error::NoFlower)));
-        // the flower is compressed: a thousand petals cost far less than their text
-        let long = format!("[{}]", vec![r#"{"points":[[1,2.5]]}"#; 1000].join(","));
-        let png = encode_canvas(&Canvas {
-            flower: Some(long.clone()),
-            ..canvas()
-        });
+        // a thousand petals of the same brush cost far less than their fields
+        let mut long = small();
+        long.petals = vec![long.petals[0].clone(); 1000];
+        let bytes = encode_flower(&long);
+        assert!(bytes.len() < 1000 * 8, "{} bytes", bytes.len());
+        assert_eq!(decode_flower(&bytes).unwrap(), long);
         assert!(
-            png.len() < bare.len() + long.len() / 10,
-            "{} bytes",
-            png.len()
-        );
-        assert_eq!(decode_canvas(&png).unwrap().flower.unwrap(), long);
-        assert!(
-            decode_flower(b"{nope")
+            decode_flower(b"{\"width\": 7}")
                 .unwrap_err()
                 .to_string()
-                .contains("not JSON")
+                .contains("not a flower")
         );
     }
 
     #[test]
-    fn a_flower_file_has_one_petal_per_line_and_reads_back() {
-        let text = r##"{"width":3,"petals":[{"points":[[1,2.5]]},{"color":"#e8d9b0","points":[[485.09081788179355,0.1]]}],"seed":1}"##;
-        let flower = Flower::from_json(text).unwrap();
-        let out = encode_flower(&flower);
-        assert_eq!(
-            String::from_utf8(out.clone()).unwrap(),
-            "{\"width\":3,\"petals\":[\n{\"points\":[[1,2.5]]},\n{\"color\":\"#e8d9b0\",\"points\":[[485.09081788179355,0.1]]}\n],\"seed\":1}\n"
-        );
-        assert_eq!(decode_flower(&out).unwrap(), flower);
+    fn a_flower_file_keeps_every_bit() {
+        let mut f = small();
+        f.petals[0].points = vec![[485.09081788179355, 0.1, 0.3333333333333333, 1e-300]];
+        f.background = [12.5, 0.1, 255.0];
+        f.seed = i64::MIN;
+        assert_eq!(decode_flower(&encode_flower(&f)).unwrap(), f);
     }
 
     fn png_header(w: u32, h: u32) -> Vec<u8> {
@@ -694,28 +665,21 @@ mod tests {
         let e = decode_canvas(b"\x89PNG\r\n\x1a\nnot a header").unwrap_err();
         assert!(matches!(e, Error::Png(_)), "{e}");
         assert!(e.source().is_some());
-        let e = crate::flower::Flower::from_json("{nope").unwrap_err();
-        assert!(
-            matches!(e, Error::FlowerJson(_)) && e.source().is_some(),
-            "{e}"
-        );
     }
 
     #[test]
     fn a_broken_flower_is_an_error_naming_the_flower() {
-        let mut c = canvas();
-        c.flower = Some(r#"{"width": 7, "height": 5, "petals": []}"#.into());
+        let c = crate::flower_on_canvas(&small(), canvas());
         let mut png = encode_canvas(&c);
-        // pcFL: the zlib stream of the JSON, nothing else
+        // pcFL: the bytes of the .flower, a zstd frame
         let at = png
             .windows(4)
             .position(|w| w == b"pcFL")
             .expect("a pcFL chunk");
         let len = u32::from_be_bytes(png[at - 4..at].try_into().expect("4 bytes")) as usize;
         let data = at + 4;
-        // keep the two-byte zlib header, break the stream after it, and give the chunk a good
-        // CRC: a bad one would only make the png crate drop the chunk, and the flower with it
-        for b in &mut png[data + 2..data + len] {
+        // keep the zstd magic, break the frame after it, and give the chunk a good CRC
+        for b in &mut png[data + 6..data + len] {
             *b ^= 0x5a;
         }
         let crc = crc32_more(crc32(b"pcFL"), &png[data..data + len]);
@@ -733,19 +697,19 @@ mod tests {
 
     /// A PNG of `canvas()` with these flower chunks before and after its pixels, as another
     /// program might write one.
-    fn png_with_flowers(before: &[&str], after: &[&str]) -> Vec<u8> {
-        let c = canvas();
+    fn png_with_flowers(before: usize, after: usize) -> Vec<u8> {
+        let (c, flower) = (canvas(), encode_flower(&small()));
         let mut out = Vec::new();
         let mut enc = png::Encoder::new(&mut out, c.width as u32, c.height as u32);
         enc.set_color(png::ColorType::Rgb);
         enc.set_depth(png::BitDepth::Eight);
         let mut w = enc.write_header().unwrap();
-        for text in before {
-            w.write_chunk(FLOWER_CHUNK, &deflate(text)).unwrap();
+        for _ in 0..before {
+            w.write_chunk(FLOWER_CHUNK, &flower).unwrap();
         }
         w.write_image_data(&c.pixels).unwrap();
-        for text in after {
-            w.write_chunk(FLOWER_CHUNK, &deflate(text)).unwrap();
+        for _ in 0..after {
+            w.write_chunk(FLOWER_CHUNK, &flower).unwrap();
         }
         w.finish().unwrap();
         out
@@ -753,10 +717,9 @@ mod tests {
 
     #[test]
     fn a_flower_after_the_pixels_is_found_and_two_flowers_are_an_error() {
-        let one = r#"{"width": 7, "height": 5, "petals": []}"#;
-        let behind = decode_canvas(&png_with_flowers(&[], &[one])).unwrap();
-        assert_eq!(behind.flower.as_deref(), Some(one));
-        for (before, after) in [(&[one, one][..], &[][..]), (&[one][..], &[one][..])] {
+        let behind = decode_canvas(&png_with_flowers(0, 1)).unwrap();
+        assert_eq!(behind.flower, Some(encode_flower(&small())));
+        for (before, after) in [(2, 0), (1, 1)] {
             let e = decode_canvas(&png_with_flowers(before, after)).unwrap_err();
             assert!(e.to_string().contains("two flowers"), "{e}");
         }

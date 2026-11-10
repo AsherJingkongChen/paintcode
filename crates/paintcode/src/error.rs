@@ -10,9 +10,6 @@ pub enum Error {
     /// A flower the engine refuses, or cannot paint with the options given.
     #[error("{0}")]
     Flower(String),
-    /// A flower that is not JSON at all.
-    #[error("flower is not JSON: {0}")]
-    FlowerJson(#[from] serde_json::Error),
     /// Bytes that are not the file they were read as.
     #[error("{0}")]
     File(String),

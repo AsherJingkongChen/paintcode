@@ -147,7 +147,7 @@ pub fn paint_planned(
     let (path, plans) = (&planned.path, &planned.plans);
     if plans.is_empty() {
         let carried = match color {
-            Color::Rgb(c) => *c,
+            Color::Rgb(c) => crate::flower::unit(*c),
             Color::Smudge => [0.0; 3],
         };
         return Painted { dabs: 0, carried };
@@ -159,7 +159,7 @@ pub fn paint_planned(
         canvas.prepare_profile(brush.hardness);
     });
     let mut carried: [f32; 3] = match color {
-        Color::Rgb(c) => *c,
+        Color::Rgb(c) => crate::flower::unit(*c),
         // a smudge loads the brush with what is under it where it first meets the canvas,
         // before any jitter; a path that never meets it lays nothing there is to see, so it
         // takes the nearest edge

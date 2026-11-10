@@ -91,17 +91,16 @@ impl Default for RenderOpts {
 /// The canvas with a flower on it, which [`encode_canvas`] writes into the PNG. Any flower that was
 /// on it is replaced.
 pub fn flower_on_canvas(flower: &Flower, canvas: Canvas) -> Canvas {
-    let text = String::from_utf8(encode_flower(flower)).expect("JSON is UTF-8");
     Canvas {
-        flower: Some(text),
+        flower: Some(encode_flower(flower)),
         ..canvas
     }
 }
 
 /// The flower on a canvas. A canvas without one is an error.
 pub fn flower_off_canvas(canvas: &Canvas) -> Result<Flower> {
-    let text = canvas.flower.as_deref().ok_or(Error::NoFlower)?;
-    Flower::from_json(text)
+    let bytes = canvas.flower.as_deref().ok_or(Error::NoFlower)?;
+    io::decode_flower_bytes(bytes)
 }
 
 /// Paint a flower: its canvas.
@@ -122,7 +121,7 @@ pub fn flower_to_coat(flower: &Flower, opts: &RenderOpts) -> Result<Coat> {
         width: canvas.width,
         height: canvas.height,
         supersample: opts.supersample as usize,
-        background: flower.background,
+        background: flower.paint_background(),
         seed: flower.seed,
         dabs: canvas.dabs.unwrap_or_default(),
     })
@@ -207,7 +206,12 @@ impl Size {
     }
 
     fn blank(&self, flower: &Flower) -> Result<WetCanvas> {
-        WetCanvas::new(self.width, self.height, flower.background, flower.seed)
+        WetCanvas::new(
+            self.width,
+            self.height,
+            flower.paint_background(),
+            flower.seed,
+        )
     }
 }
 

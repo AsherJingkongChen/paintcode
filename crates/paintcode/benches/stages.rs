@@ -10,9 +10,9 @@ use paintcode::profile::{self, Spent};
 use paintcode::{Flower, RenderOpts, flower_to_canvas};
 
 const CASES: [(&str, &str, i64); 3] = [
-    ("kiku", "examples/kiku.flower.json", 1),
-    ("kiku_ss2", "examples/kiku.flower.json", 2),
-    ("brush_sheet", "examples/brush_sheet.flower.json", 1),
+    ("kiku", "examples/kiku.flower", 1),
+    ("kiku_ss2", "examples/kiku.flower", 2),
+    ("brush_sheet", "examples/brush_sheet.flower", 1),
 ];
 
 /// Paints per case, after one to warm up.
@@ -22,7 +22,7 @@ fn load(file: &str) -> Flower {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(file);
-    Flower::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+    paintcode::decode_flower(&std::fs::read(path).unwrap()).unwrap()
 }
 
 fn main() {

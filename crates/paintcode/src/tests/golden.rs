@@ -14,8 +14,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::{
-    Flower, RenderOpts, decode_coat, encode_canvas, encode_coat, flower_to_coat, lay_coat,
-    paint_flower,
+    RenderOpts, decode_coat, encode_canvas, encode_coat, flower_to_coat, lay_coat, paint_flower,
 };
 use serde_json::Value;
 
@@ -39,8 +38,7 @@ fn manifest() -> serde_json::Map<String, Value> {
 fn check(name: &str) {
     let m = manifest();
     let case = &m[name];
-    let text = std::fs::read_to_string(root().join(case["flower"].as_str().unwrap())).unwrap();
-    let flower = Flower::from_json(&text).unwrap();
+    let flower = super::load(case["flower"].as_str().unwrap());
     let o = &case["options"];
     let opts = RenderOpts {
         scale: o.get("scale").and_then(Value::as_f64).unwrap_or(1.0),

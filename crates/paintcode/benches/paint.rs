@@ -19,9 +19,9 @@ use paintcode::{
 };
 
 const CASES: [(&str, &str, i64); 3] = [
-    ("kiku", "examples/kiku.flower.json", 1),
-    ("kiku_ss2", "examples/kiku.flower.json", 2),
-    ("brush_sheet", "examples/brush_sheet.flower.json", 1),
+    ("kiku", "examples/kiku.flower", 1),
+    ("kiku_ss2", "examples/kiku.flower", 2),
+    ("brush_sheet", "examples/brush_sheet.flower", 1),
 ];
 
 /// Samples per case; a paint takes up to seconds, so each sample is one paint.
@@ -31,7 +31,7 @@ fn load(file: &str) -> Flower {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(file);
-    Flower::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+    paintcode::decode_flower(&std::fs::read(path).unwrap()).unwrap()
 }
 
 fn threads() -> Vec<usize> {
@@ -76,10 +76,9 @@ fn paint(c: &mut Criterion) {
 
 fn round(c: &mut Criterion) {
     let mut group = c.benchmark_group("loop");
-    let text = std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/kiku.flower.json"),
-    )
-    .unwrap();
+    let text =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/kiku.flower"))
+            .unwrap();
     let flower = decode_flower(&text).unwrap();
     let pool = pool(1);
     for supersample in [1, 2] {

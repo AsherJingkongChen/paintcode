@@ -38,7 +38,7 @@ __all__ = [
 
 Flower: TypeAlias = builtins.dict[builtins.str, typing.Any]
 r"""
-A flower, as a dict: anything json.dumps takes.
+A flower, as a dict of dicts, lists, str, int, float, bool and None, every key written.
 """
 
 BRUSHES: builtins.dict[builtins.str, builtins.dict[builtins.str, typing.Any]]
@@ -128,8 +128,8 @@ def load_coat(path: builtins.str | os.PathLike | pathlib.Path) -> Coat:
 
 def load_flower(path: builtins.str | os.PathLike | pathlib.Path) -> Flower:
     r"""
-    The flower in a .flower.json, or on a .flower.png; keys in their written order. A PNG with no
-    flower on it is an error.
+    The flower in a .flower, or on a .flower.png, written out in full: every petal with its whole
+    brush, every colour as numbers. A PNG with no flower on it is an error.
     """
 
 def save_canvas(*, canvas: Canvas, pathname: builtins.str | os.PathLike | pathlib.Path) -> pathlib.Path:
@@ -147,7 +147,7 @@ def save_coat(*, coat: Coat, pathname: builtins.str | os.PathLike | pathlib.Path
 
 def save_flower(*, flower: Flower, pathname: builtins.str | os.PathLike | pathlib.Path) -> pathlib.Path:
     r"""
-    Write a flower as JSON, one petal per line, at pathname.flower.json. A flower the engine would
-    refuse is refused.
+    Write a flower at pathname.flower: bitcode inside zstd. A flower the engine would refuse is
+    refused.
     """
 

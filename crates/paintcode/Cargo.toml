@@ -13,13 +13,13 @@ crate-type = ["cdylib", "rlib"]
 bench = false
 
 [dependencies]
-# the zlib stream of the flower on a PNG; png 0.18 compresses with it too
-flate2 = "1"
+# a .flower is bitcode inside zstd; see src/io.rs
+bitcode = "0.6"
+zstd = "0.13"
 # png 0.18.1 and Decoder::subscribe, which keeps the flower chunk png would skip; see DESIGN.md,
 # "The flower on its canvas". Its branch is `subscribe`; this pins the commit.
 png = { git = "https://github.com/AsherJingkongChen/image-png", rev = "e8adf4b2463a98b67446346d6e46733d7353eec7" }
 rayon = "1"
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"
 pyo3 = { version = "0.30", features = ["abi3-py310"], optional = true }
 # writes python/paintcode/_core.pyi from the attributes in src/python.rs; infer_signature prints
@@ -31,6 +31,9 @@ pyo3-stub-gen = { version = "0.23.2", default-features = false, features = ["inf
 pyo3-build-config = { version = "0.30", optional = true }
 
 [dev-dependencies]
+# test flowers are written as json! literals; golden snapshots are gzipped
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+flate2 = "1"
 # terminal output only, no plots
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 

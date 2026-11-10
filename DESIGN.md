@@ -50,14 +50,16 @@ The engine is Rust: one crate, `crates/paintcode`, with one module per part of t
 | `flower` | bones | error, math | flower, petal and brush types, brushes, colours |
 | `render` | render | error, math | dabs to pixels, coats, paper grain, downsampling |
 | `petal` | flesh | profile, math, flower, render | control points to dabs, carrying paint |
-| `io` | files | error, flower, render | encoders and decoders, in pairs: flower JSON, PNG, PLY |
+| `io` | files | error, flower, render | encoders and decoders, in pairs: `.flower`, PNG, PLY |
 | `python` | face | everything | `paintcode._core`, only with the `python` feature |
 
 Errors are one `thiserror` enum. Clippy denies `unwrap`, `panic`, `todo` and `unimplemented` outside tests; an `expect` says why it cannot fail.
 
 ## The flower on its canvas
 
-A `.flower.png` is a PNG that carries the flower that painted it, in a chunk of its own before the pixels: `pcFL`, the flower's JSON as a zlib stream. The four letters are the chunk's flags. `p` is ancillary, so any viewer shows the picture without it; `c` is private; `F` keeps the reserved bit clear; `L` is unsafe to copy, so a program that edits the pixels and does not know the chunk drops it rather than keep a flower that no longer paints them. Better no flower than one that lies: two `pcFL` chunks on one PNG are an error, and so is one whose CRC is wrong or that does not inflate to UTF-8 within 64 MiB.
+A `.flower` is the flower as painting uses it, bitcode inside zstd: every petal with its whole brush, colours as numbers in 0..255, points in rows of four, and every key written. A painter writes a Python dict, where a brush may be named and a colour written in hex; `src/python.rs` turns the dict into a `Spec`, a small tree of maps, lists and values, and one parser in `src/flower/parse.rs` makes the flower from it. A `.flower` read from a file is turned into a `Spec` and parsed again, so a file can hold nothing a dict could not. Reading one grows it twice, and both are bounded: zstd inflates to at most 64 MiB, and bitcode lays out no element it has not read at least a bit for, so with a whole brush in every petal the flower in memory stays within a small multiple of that.
+
+A `.flower.png` is a PNG that carries the flower that painted it, in a chunk of its own before the pixels: `pcFL`, holding the bytes of its `.flower`. The four letters are the chunk's flags. `p` is ancillary, so any viewer shows the picture without it; `c` is private; `F` keeps the reserved bit clear; `L` is unsafe to copy, so a program that edits the pixels and does not know the chunk drops it rather than keep a flower that no longer paints them. Better no flower than one that lies: two `pcFL` chunks on one PNG are an error, and so is one whose CRC is wrong or that does not decode.
 
 The png crate skips every ancillary chunk it does not decode itself, as it has since the question was asked in 2020 ([image-png#221](https://github.com/image-rs/image-png/issues/221)). paintcode reads `pcFL` with a fork of png 0.18.1 that adds one thing, `Decoder::subscribe(type)`: the decoder keeps every chunk of that type whole, its length reserved at once within the decoder's limits, in `Info::subscribed_chunks`, and one whose CRC does not match is kept all the same, marked, instead of being dropped in silence, so a damaged flower is not taken for no flower. Only decoding changed, since writing a chunk of any type was already there (`Writer::write_chunk`), and the fork is pinned by its commit in `crates/paintcode/Cargo.toml`.
 

@@ -1,11 +1,10 @@
-use serde_json::Value;
+use super::{Result, Spec, err};
 
-use super::{Result, err};
-
-/// `[r, g, b]` in 0..255, or `"#rrggbb"` / `"#rgb"`, to float32 0..1.
-pub fn parse_color(c: &Value) -> Result<[f32; 3]> {
-    let raw: [f32; 3] = match c {
-        Value::String(s) => {
+/// `[r, g, b]` in 0..255, or `"#rrggbb"` / `"#rgb"`, as float32 0..255: the colour as it was
+/// written, which a flower keeps; [`unit`] is what painting uses.
+pub fn parse_color(c: &Spec) -> Result<[f32; 3]> {
+    match c {
+        Spec::Str(s) => {
             let s = s.trim_start_matches('#');
             let s: String = if s.len() == 3 {
                 s.chars().flat_map(|ch| [ch, ch]).collect()
@@ -21,19 +20,24 @@ pub fn parse_color(c: &Value) -> Result<[f32; 3]> {
                     .map_err(|_| super::Error::Flower(format!("bad colour {c}")))?
                     as f32;
             }
-            out
+            Ok(out)
         }
-        Value::Array(a) if a.len() == 3 => {
+        Spec::List(a) if a.len() == 3 => {
             let mut out = [0f32; 3];
             for (o, v) in out.iter_mut().zip(a) {
                 *o = v
                     .as_f64()
+                    .filter(|v| v.is_finite())
                     .ok_or_else(|| super::Error::Flower(format!("bad colour {c}")))?
                     as f32;
             }
-            out
+            Ok(out)
         }
-        _ => return err(format!("colour must have 3 channels, got {c}")),
-    };
-    Ok(raw.map(|v| (v / 255.0f32).clamp(0.0, 1.0)))
+        _ => err(format!("colour must have 3 channels, got {c}")),
+    }
+}
+
+/// A colour in 0..255 as painting uses it: 0..1, clamped.
+pub fn unit(c: [f32; 3]) -> [f32; 3] {
+    c.map(|v| (v / 255.0f32).clamp(0.0, 1.0))
 }
