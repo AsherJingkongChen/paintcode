@@ -179,7 +179,7 @@ pub(crate) fn decode_flower_bytes(bytes: &[u8]) -> Result<Flower> {
     })?;
     let flower: Flower = bitcode::decode(&raw)
         .map_err(|e| Error::File(format!("the flower does not decode: {e}")))?;
-    Flower::from_spec(&flower.to_spec())
+    Flower::from_potpourri(&flower.to_potpourri())
 }
 
 // --------------------------------------------------------------------------------------- PLY

@@ -1,7 +1,7 @@
 //! Tests that reach inside the crate. The public API is what Python sees, so a test of a part of
 //! the engine lives here, beside it, rather than in tests/.
 //!
-//! A test flower is written as a `json!` literal, turned into the [`Spec`] a Python dict would
+//! A test flower is written as a `json!` literal, turned into the [`Potpourri`] a Python dict would
 //! become. serde_json is only a dev-dependency, for that.
 
 mod engine;
@@ -14,26 +14,28 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use crate::Flower;
-use crate::flower::Spec;
+use crate::flower::Potpourri;
 
 /// The repository root.
 pub fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// A `json!` value as the [`Spec`] the same Python value would become.
-pub fn spec(v: &Value) -> Spec {
+/// A `json!` value as the [`Potpourri`] the same Python value would become.
+pub fn potpourri(v: &Value) -> Potpourri {
     match v {
-        Value::Null => Spec::Null,
-        Value::Bool(b) => Spec::Bool(*b),
+        Value::Null => Potpourri::Null,
+        Value::Bool(b) => Potpourri::Bool(*b),
         // a seed may use all 64 bits, as a Python int may
         Value::Number(n) => match n.as_i64().or_else(|| n.as_u64().map(|u| u as i64)) {
-            Some(i) => Spec::Int(i),
-            None => Spec::Num(n.as_f64().expect("a JSON number")),
+            Some(i) => Potpourri::Int(i),
+            None => Potpourri::Num(n.as_f64().expect("a JSON number")),
         },
-        Value::String(s) => Spec::Str(s.clone()),
-        Value::Array(a) => Spec::List(a.iter().map(spec).collect()),
-        Value::Object(m) => Spec::Map(m.iter().map(|(k, v)| (k.clone(), spec(v))).collect()),
+        Value::String(s) => Potpourri::Str(s.clone()),
+        Value::Array(a) => Potpourri::List(a.iter().map(potpourri).collect()),
+        Value::Object(m) => {
+            Potpourri::Map(m.iter().map(|(k, v)| (k.clone(), potpourri(v))).collect())
+        }
     }
 }
 
@@ -79,7 +81,7 @@ pub fn full(v: &Value) -> Value {
 
 /// A test flower from a `json!` literal, filled in by [`full`].
 pub fn flower(v: &Value) -> Flower {
-    Flower::from_spec(&spec(&full(v))).unwrap()
+    Flower::from_potpourri(&potpourri(&full(v))).unwrap()
 }
 
 /// A `.flower` in the repository, by its path from the root.

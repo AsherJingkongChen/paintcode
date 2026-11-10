@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::flower::Spec;
+use crate::flower::Potpourri;
 use crate::{Error, RenderOpts, io};
 use pyo3::exceptions::{PyMemoryError, PyValueError};
 use pyo3::prelude::*;
@@ -88,33 +88,33 @@ fn file_error(path: &Path, e: Error) -> PyErr {
 /// A flower from its dict, checked: what the engine would refuse is refused here, before any file
 /// is written or any pixel is painted.
 fn to_flower(flower: &Bound<'_, PyAny>) -> PyResult<crate::Flower> {
-    crate::Flower::from_spec(&to_spec(flower)?).map_err(value_error)
+    crate::Flower::from_potpourri(&to_potpourri(flower)?).map_err(value_error)
 }
 
-/// A Python value as a [`Spec`]: dicts (str keys, in their order), lists and tuples, str, int,
+/// A Python value as a [`Potpourri`]: dicts (str keys, in their order), lists and tuples, str, int,
 /// float, bool and None. Anything else is no part of a flower.
-fn to_spec(v: &Bound<'_, PyAny>) -> PyResult<Spec> {
+fn to_potpourri(v: &Bound<'_, PyAny>) -> PyResult<Potpourri> {
     if v.is_none() {
-        return Ok(Spec::Null);
+        return Ok(Potpourri::Null);
     }
     if let Ok(b) = v.cast::<PyBool>() {
-        return Ok(Spec::Bool(b.is_true()));
+        return Ok(Potpourri::Bool(b.is_true()));
     }
     if let Ok(i) = v.cast::<PyInt>() {
         // a seed may use all 64 bits; it is hashed as a u64
         return Ok(match i.extract::<i64>() {
-            Ok(n) => Spec::Int(n),
+            Ok(n) => Potpourri::Int(n),
             Err(_) => match i.extract::<u64>() {
-                Ok(u) => Spec::Int(u as i64),
-                Err(_) => Spec::Num(i.extract::<f64>()?),
+                Ok(u) => Potpourri::Int(u as i64),
+                Err(_) => Potpourri::Num(i.extract::<f64>()?),
             },
         });
     }
     if let Ok(f) = v.cast::<PyFloat>() {
-        return Ok(Spec::Num(f.value()));
+        return Ok(Potpourri::Num(f.value()));
     }
     if let Ok(s) = v.cast::<PyString>() {
-        return Ok(Spec::Str(s.to_str()?.to_owned()));
+        return Ok(Potpourri::Str(s.to_str()?.to_owned()));
     }
     if let Ok(d) = v.cast::<PyDict>() {
         let mut m = Vec::with_capacity(d.len());
@@ -124,14 +124,14 @@ fn to_spec(v: &Bound<'_, PyAny>) -> PyResult<Spec> {
                 .map_err(|_| PyValueError::new_err(format!("a key must be a str, got {k}")))?
                 .to_str()?
                 .to_owned();
-            m.push((k, to_spec(&val)?));
+            m.push((k, to_potpourri(&val)?));
         }
-        return Ok(Spec::Map(m));
+        return Ok(Potpourri::Map(m));
     }
     if v.cast::<PyList>().is_ok() || v.cast::<PyTuple>().is_ok() {
-        return Ok(Spec::List(
+        return Ok(Potpourri::List(
             v.try_iter()?
-                .map(|x| to_spec(&x?))
+                .map(|x| to_potpourri(&x?))
                 .collect::<PyResult<_>>()?,
         ));
     }
@@ -141,20 +141,20 @@ fn to_spec(v: &Bound<'_, PyAny>) -> PyResult<Spec> {
     )))
 }
 
-/// A [`Spec`] as Python values: the inverse of [`to_spec`].
-fn to_dict<'py>(py: Python<'py>, v: &Spec) -> PyResult<Bound<'py, PyAny>> {
+/// A [`Potpourri`] as Python values: the inverse of [`to_potpourri`].
+fn to_dict<'py>(py: Python<'py>, v: &Potpourri) -> PyResult<Bound<'py, PyAny>> {
     Ok(match v {
-        Spec::Null => py.None().into_bound(py),
-        Spec::Bool(b) => PyBool::new(py, *b).to_owned().into_any(),
-        Spec::Int(n) => n.into_pyobject(py)?.into_any(),
-        Spec::Num(f) => PyFloat::new(py, *f).into_any(),
-        Spec::Str(s) => PyString::new(py, s).into_any(),
-        Spec::List(l) => {
+        Potpourri::Null => py.None().into_bound(py),
+        Potpourri::Bool(b) => PyBool::new(py, *b).to_owned().into_any(),
+        Potpourri::Int(n) => n.into_pyobject(py)?.into_any(),
+        Potpourri::Num(f) => PyFloat::new(py, *f).into_any(),
+        Potpourri::Str(s) => PyString::new(py, s).into_any(),
+        Potpourri::List(l) => {
             let items: Vec<Bound<'py, PyAny>> =
                 l.iter().map(|x| to_dict(py, x)).collect::<PyResult<_>>()?;
             PyList::new(py, items)?.into_any()
         }
-        Spec::Map(m) => {
+        Potpourri::Map(m) => {
             let d = PyDict::new(py);
             for (k, x) in m {
                 d.set_item(k, to_dict(py, x)?)?;
@@ -312,7 +312,7 @@ impl Coat {
 fn load_flower<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyAny>> {
     let bytes = std::fs::read(&path)?;
     let flower = io::decode_flower(&bytes).map_err(|e| file_error(&path, e))?;
-    to_dict(py, &flower.to_spec())
+    to_dict(py, &flower.to_potpourri())
 }
 
 /// Write a flower at pathname.flower: bitcode inside zstd. A flower the engine would refuse is
@@ -453,7 +453,7 @@ fn flower_off_canvas<'py>(
     canvas: PyRef<'py, Canvas>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let flower = crate::flower_off_canvas(&canvas.0).map_err(value_error)?;
-    to_dict(py, &flower.to_spec())
+    to_dict(py, &flower.to_potpourri())
 }
 
 #[pymodule]
@@ -479,10 +479,10 @@ fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         .iter()
         .map(|n| {
             let b = crate::flower::brush(n).expect("a listed brush");
-            (n.to_string(), b.to_spec())
+            (n.to_string(), b.to_potpourri())
         })
         .collect();
-    m.add("BRUSHES", to_dict(m.py(), &Spec::Map(brushes))?)?;
+    m.add("BRUSHES", to_dict(m.py(), &Potpourri::Map(brushes))?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

@@ -38,7 +38,7 @@ fn chunking_and_snapshots_do_not_change_pixels() {
 fn errors_name_the_petal() {
     let bad = r##"{"width": 10, "height": 10, "petals": [{"brush": "ink", "points": [[1, 1]]}, {"brush": "ink", "sise": 3, "points": [[1, 1]]}]}"##;
     let bad: serde_json::Value = serde_json::from_str(bad).unwrap();
-    let e = Flower::from_spec(&super::spec(&super::full(&bad)))
+    let e = Flower::from_potpourri(&super::potpourri(&super::full(&bad)))
         .unwrap_err()
         .to_string();
     assert!(e.starts_with("petal 1:") && e.contains("sise"), "{e}");

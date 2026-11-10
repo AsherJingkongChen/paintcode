@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{Brush, Error, Result, Spec, err, parse_color};
+use super::{Brush, Error, Potpourri, Result, err, parse_color};
 use crate::math::rng;
 
 /// What a petal paints with.
@@ -48,7 +48,7 @@ const PETAL_MAY: [&str; 2] = ["id", "group"];
 
 impl Flower {
     /// A flower from what a painter wrote. Every key is written: nothing has a default.
-    pub fn from_spec(v: &Spec) -> Result<Flower> {
+    pub fn from_potpourri(v: &Potpourri) -> Result<Flower> {
         let root = v
             .as_map()
             .ok_or_else(|| Error::Flower(format!("a flower is a dict, got {v}")))?;
@@ -66,8 +66,8 @@ impl Flower {
         let int = |k: &str, min: i64| -> Result<i64> {
             let v = need(k)?;
             let n = match *v {
-                Spec::Int(n) => Some(n),
-                Spec::Num(f) if f.fract() == 0.0 && f.abs() < 9e15 => Some(f as i64),
+                Potpourri::Int(n) => Some(n),
+                Potpourri::Num(f) if f.fract() == 0.0 && f.abs() < 9e15 => Some(f as i64),
                 _ => None,
             }
             .ok_or_else(|| Error::Flower(format!("{k} must be a whole number, got {v}")))?;
@@ -89,7 +89,7 @@ impl Flower {
             for (name, spec) in bs {
                 named.insert(
                     name,
-                    Brush::from_spec(spec)
+                    Brush::from_potpourri(spec)
                         .map_err(|e| Error::Flower(format!("brush {name}: {e}")))?,
                 );
             }
@@ -123,48 +123,48 @@ impl Flower {
     }
 
     /// The flower written out in full: every petal with its whole brush, every colour as numbers.
-    /// [`Flower::from_spec`] takes it back as it is.
-    pub fn to_spec(&self) -> Spec {
-        let rgb = |c: [f32; 3]| Spec::List(c.map(|v| Spec::Num(v as f64)).to_vec());
+    /// [`Flower::from_potpourri`] takes it back as it is.
+    pub fn to_potpourri(&self) -> Potpourri {
+        let rgb = |c: [f32; 3]| Potpourri::List(c.map(|v| Potpourri::Num(v as f64)).to_vec());
         let petals = self
             .petals
             .iter()
             .map(|p| {
                 let mut m = vec![
-                    ("brush".to_string(), p.brush.to_spec()),
+                    ("brush".to_string(), p.brush.to_potpourri()),
                     (
                         "color".to_string(),
                         match p.color {
                             Color::Rgb(c) => rgb(c),
-                            Color::Smudge => Spec::Null,
+                            Color::Smudge => Potpourri::Null,
                         },
                     ),
                     (
                         "points".to_string(),
-                        Spec::List(
+                        Potpourri::List(
                             p.points
                                 .iter()
-                                .map(|r| Spec::List(r.map(Spec::Num).to_vec()))
+                                .map(|r| Potpourri::List(r.map(Potpourri::Num).to_vec()))
                                 .collect(),
                         ),
                     ),
-                    ("smooth".to_string(), Spec::Bool(p.smooth)),
+                    ("smooth".to_string(), Potpourri::Bool(p.smooth)),
                 ];
                 if let Some(id) = &p.id {
-                    m.push(("id".to_string(), Spec::Str(id.clone())));
+                    m.push(("id".to_string(), Potpourri::Str(id.clone())));
                 }
                 if let Some(g) = &p.group {
-                    m.push(("group".to_string(), Spec::Str(g.clone())));
+                    m.push(("group".to_string(), Potpourri::Str(g.clone())));
                 }
-                Spec::Map(m)
+                Potpourri::Map(m)
             })
             .collect();
-        Spec::Map(vec![
-            ("width".to_string(), Spec::Int(self.width as i64)),
-            ("height".to_string(), Spec::Int(self.height as i64)),
+        Potpourri::Map(vec![
+            ("width".to_string(), Potpourri::Int(self.width as i64)),
+            ("height".to_string(), Potpourri::Int(self.height as i64)),
             ("background".to_string(), rgb(self.background)),
-            ("seed".to_string(), Spec::Int(self.seed)),
-            ("petals".to_string(), Spec::List(petals)),
+            ("seed".to_string(), Potpourri::Int(self.seed)),
+            ("petals".to_string(), Potpourri::List(petals)),
         ])
     }
 
@@ -215,7 +215,7 @@ impl Petal {
     }
 }
 
-fn parse_petal(s: &Spec, named: &HashMap<&str, Brush>) -> Result<Petal> {
+fn parse_petal(s: &Potpourri, named: &HashMap<&str, Brush>) -> Result<Petal> {
     let m = s
         .as_map()
         .ok_or_else(|| Error::Flower(format!("a petal is a dict, got {s}")))?;
@@ -224,10 +224,10 @@ fn parse_petal(s: &Spec, named: &HashMap<&str, Brush>) -> Result<Petal> {
             .ok_or_else(|| Error::Flower(format!("the petal has no {k}")))
     };
     let mut brush = match need("brush")? {
-        Spec::Str(name) if named.contains_key(name.as_str()) => named[name.as_str()].clone(),
-        other => Brush::from_spec(other)?,
+        Potpourri::Str(name) if named.contains_key(name.as_str()) => named[name.as_str()].clone(),
+        other => Brush::from_potpourri(other)?,
     };
-    let overrides: Vec<(String, Spec)> = m
+    let overrides: Vec<(String, Potpourri)> = m
         .iter()
         .filter(|(k, _)| !PETAL_KEYS.contains(&k.as_str()) && !PETAL_MAY.contains(&k.as_str()))
         .cloned()
@@ -236,7 +236,7 @@ fn parse_petal(s: &Spec, named: &HashMap<&str, Brush>) -> Result<Petal> {
         brush = brush.with_fields(&overrides)?;
     }
     let color = match need("color")? {
-        Spec::Null => Color::Smudge,
+        Potpourri::Null => Color::Smudge,
         c => Color::Rgb(parse_color(c)?),
     };
     let pts = need("points")?;
@@ -265,13 +265,13 @@ fn parse_petal(s: &Spec, named: &HashMap<&str, Brush>) -> Result<Petal> {
     let name = |k: &str| -> Result<Option<String>> {
         match s.get(k) {
             None => Ok(None),
-            Some(Spec::Str(t)) if !t.is_empty() => Ok(Some(t.clone())),
+            Some(Potpourri::Str(t)) if !t.is_empty() => Ok(Some(t.clone())),
             Some(v) => err(format!("{k} must be a non-empty string, got {v}")),
         }
     };
     let (id, group) = (name("id")?, name("group")?);
     let smooth = match need("smooth")? {
-        Spec::Bool(b) => *b,
+        Potpourri::Bool(b) => *b,
         v => return err(format!("smooth must be True or False, got {v}")),
     };
     Ok(Petal {

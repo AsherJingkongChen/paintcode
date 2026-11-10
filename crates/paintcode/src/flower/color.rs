@@ -1,10 +1,10 @@
-use super::{Result, Spec, err};
+use super::{Potpourri, Result, err};
 
 /// `[r, g, b]` in 0..255, or `"#rrggbb"` / `"#rgb"`, as float32 0..255: the colour as it was
 /// written, which a flower keeps; [`unit`] is what painting uses.
-pub fn parse_color(c: &Spec) -> Result<[f32; 3]> {
+pub fn parse_color(c: &Potpourri) -> Result<[f32; 3]> {
     match c {
-        Spec::Str(s) => {
+        Potpourri::Str(s) => {
             let s = s.trim_start_matches('#');
             let s: String = if s.len() == 3 {
                 s.chars().flat_map(|ch| [ch, ch]).collect()
@@ -22,7 +22,7 @@ pub fn parse_color(c: &Spec) -> Result<[f32; 3]> {
             }
             Ok(out)
         }
-        Spec::List(a) if a.len() == 3 => {
+        Potpourri::List(a) if a.len() == 3 => {
             let mut out = [0f32; 3];
             for (o, v) in out.iter_mut().zip(a) {
                 *o = v

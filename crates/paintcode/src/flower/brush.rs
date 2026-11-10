@@ -1,6 +1,6 @@
 use crate::math::gauss;
 
-use super::{Error, Result, Spec, err};
+use super::{Error, Potpourri, Result, err};
 
 /// How one control point (x, y, pressure, tilt) becomes one dab. The fields are the README's
 /// "Brush fields" table.
@@ -158,20 +158,20 @@ pub fn brush(name: &str) -> Option<Brush> {
 impl Brush {
     /// Brush from a name, or an object: `{"brush": name, field: value, ...}`, a named brush with
     /// some fields replaced, or every field written out, with no "brush" to start from.
-    pub fn from_spec(spec: &Spec) -> Result<Brush> {
+    pub fn from_potpourri(spec: &Potpourri) -> Result<Brush> {
         match spec {
-            Spec::Str(name) => brush(name).ok_or_else(|| {
+            Potpourri::Str(name) => brush(name).ok_or_else(|| {
                 Error::Flower(format!("unknown brush {name:?}; have {:?}", sorted_names()))
             }),
-            Spec::Map(m) if spec.get("preset").is_some() => {
+            Potpourri::Map(m) if spec.get("preset").is_some() => {
                 let _ = m;
                 err("\"preset\" is called \"brush\" now: {\"brush\": \"filbert\", ...}")
             }
-            Spec::Map(m) => {
-                let fields: Vec<(String, Spec)> =
+            Potpourri::Map(m) => {
+                let fields: Vec<(String, Potpourri)> =
                     m.iter().filter(|(k, _)| k != "brush").cloned().collect();
                 let base = match spec.get("brush") {
-                    Some(p) => Brush::from_spec(p)?,
+                    Some(p) => Brush::from_potpourri(p)?,
                     None => {
                         let missing: Vec<&str> = FIELDS
                             .iter()
@@ -194,7 +194,7 @@ impl Brush {
     }
 
     /// A copy with some fields replaced; unknown names are an error.
-    pub fn with_fields(&self, fields: &[(String, Spec)]) -> Result<Brush> {
+    pub fn with_fields(&self, fields: &[(String, Potpourri)]) -> Result<Brush> {
         let mut unknown: Vec<&str> = fields
             .iter()
             .map(|(k, _)| k.as_str())
@@ -206,13 +206,13 @@ impl Brush {
         }
         let mut b = self.clone();
         for (k, v) in fields {
-            let num = |v: &Spec| {
+            let num = |v: &Potpourri| {
                 v.as_f64().filter(|v| v.is_finite()).ok_or_else(|| {
                     Error::Flower(format!("brush field {k} must be a number, got {v}"))
                 })
             };
-            let opt = |v: &Spec| match v {
-                Spec::Null => Ok(None),
+            let opt = |v: &Potpourri| match v {
+                Potpourri::Null => Ok(None),
                 v => num(v).map(Some),
             };
             match k.as_str() {
@@ -243,34 +243,34 @@ impl Brush {
         Ok(b)
     }
 
-    /// Every field by its name, the inverse of [`Brush::from_spec`]: the brush written out in
+    /// Every field by its name, the inverse of [`Brush::from_potpourri`]: the brush written out in
     /// full (`angle` and `half_life` may be null).
-    pub fn to_spec(&self) -> Spec {
-        let opt = |v: Option<f64>| v.map_or(Spec::Null, Spec::Num);
+    pub fn to_potpourri(&self) -> Potpourri {
+        let opt = |v: Option<f64>| v.map_or(Potpourri::Null, Potpourri::Num);
         let values = [
-            Spec::Num(self.size),
-            Spec::Num(self.aspect),
+            Potpourri::Num(self.size),
+            Potpourri::Num(self.aspect),
             opt(self.angle),
-            Spec::Num(self.hardness),
-            Spec::Num(self.flow),
-            Spec::Num(self.spacing),
-            Spec::Num(self.min_size),
-            Spec::Num(self.size_gamma),
-            Spec::Num(self.min_flow),
-            Spec::Num(self.flow_gamma),
-            Spec::Num(self.tilt_stretch),
-            Spec::Num(self.size_jitter),
-            Spec::Num(self.angle_jitter),
-            Spec::Num(self.pos_jitter),
-            Spec::Num(self.flow_jitter),
-            Spec::Num(self.load),
+            Potpourri::Num(self.hardness),
+            Potpourri::Num(self.flow),
+            Potpourri::Num(self.spacing),
+            Potpourri::Num(self.min_size),
+            Potpourri::Num(self.size_gamma),
+            Potpourri::Num(self.min_flow),
+            Potpourri::Num(self.flow_gamma),
+            Potpourri::Num(self.tilt_stretch),
+            Potpourri::Num(self.size_jitter),
+            Potpourri::Num(self.angle_jitter),
+            Potpourri::Num(self.pos_jitter),
+            Potpourri::Num(self.flow_jitter),
+            Potpourri::Num(self.load),
             opt(self.half_life),
-            Spec::Num(self.min_load),
-            Spec::Num(self.pickup),
-            Spec::Num(self.grain),
-            Spec::Num(self.grain_scale),
+            Potpourri::Num(self.min_load),
+            Potpourri::Num(self.pickup),
+            Potpourri::Num(self.grain),
+            Potpourri::Num(self.grain_scale),
         ];
-        Spec::Map(FIELDS.iter().map(|k| k.to_string()).zip(values).collect())
+        Potpourri::Map(FIELDS.iter().map(|k| k.to_string()).zip(values).collect())
     }
 
     /// Sizes and distances scaled for a larger render.
@@ -352,9 +352,9 @@ mod tests {
     fn fields_round_trip_for_every_brush() {
         for name in BRUSH_NAMES {
             let b = brush(name).unwrap();
-            let spec = b.to_spec();
+            let spec = b.to_potpourri();
             assert_eq!(spec.as_map().unwrap().len(), FIELDS.len());
-            assert_eq!(Brush::from_spec(&spec).unwrap(), b, "{name}");
+            assert_eq!(Brush::from_potpourri(&spec).unwrap(), b, "{name}");
         }
     }
 }

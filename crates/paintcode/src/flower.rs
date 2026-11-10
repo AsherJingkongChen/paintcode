@@ -6,7 +6,7 @@
 mod brush;
 mod color;
 mod parse;
-mod spec;
+mod potpourri;
 
 #[cfg(feature = "python")]
 pub use brush::BRUSH_NAMES;
@@ -15,7 +15,7 @@ pub use brush::Brush;
 pub use brush::brush;
 pub use color::{parse_color, unit};
 pub use parse::{Color, Flower, POINT_MARGIN, Petal};
-pub use spec::Spec;
+pub use potpourri::Potpourri;
 
 pub use crate::error::{Error, Result};
 

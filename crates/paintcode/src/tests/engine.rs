@@ -13,7 +13,7 @@ fn flower(v: Value) -> Flower {
 
 /// What the parser says of a test flower, filled in by [`super::full`].
 fn parse(v: &Value) -> crate::Result<Flower> {
-    Flower::from_spec(&super::spec(&super::full(v)))
+    Flower::from_potpourri(&super::potpourri(&super::full(v)))
 }
 
 fn small(seed: i64) -> Value {
@@ -31,12 +31,12 @@ fn coat(v: Value, opts: RenderOpts) -> Coat {
 
 /// A colour as a flower keeps it: 0..255.
 fn written(hex: &str) -> [f32; 3] {
-    crate::flower::parse_color(&super::spec(&json!(hex))).unwrap()
+    crate::flower::parse_color(&super::potpourri(&json!(hex))).unwrap()
 }
 
 /// A colour as painting uses it: 0..1.
 fn rgb(hex: &str) -> [f32; 3] {
-    crate::flower::unit(crate::flower::parse_color(&super::spec(&json!(hex))).unwrap())
+    crate::flower::unit(crate::flower::parse_color(&super::potpourri(&json!(hex))).unwrap())
 }
 
 fn row(points: &[[f64; 2]]) -> Vec<[f64; 4]> {
