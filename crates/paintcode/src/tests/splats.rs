@@ -3,16 +3,8 @@
 //! would show it. This test is that viewer: it reads them with io's own PLY reader, which is why
 //! it lives inside the crate. tests/golden.rs beside it keeps the bytes from drifting.
 
-use std::path::{Path, PathBuf};
-
 use crate::io::{self, decode_ply};
-use crate::{Flower, RenderOpts, flower_to_coat, paint_flower};
-
-fn golden(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/golden")
-        .join(name)
-}
+use crate::{RenderOpts, flower_to_coat, paint_flower};
 
 /// A deliberately plain 3DGS-style rasteriser that reads only the PLY: builds each Gaussian's 3D
 /// covariance from scale and rotation, projects it orthographically, sorts far to near, and
@@ -102,10 +94,9 @@ fn render_splats(ply: &[u8], background: [f32; 3]) -> (usize, usize, Vec<f32>) {
 
 #[test]
 fn a_soft_painting_round_trips_through_the_ply() {
-    let text = std::fs::read_to_string(golden("soft.flower.json")).unwrap();
-    let flower = Flower::from_json(&text).unwrap();
+    let flower = crate::tests::load("tests/golden/soft.flower");
     let c = paint_flower(&flower, &RenderOpts::default()).unwrap();
-    let bg = flower.background;
+    let bg = flower.paint_background();
     let ply = io::encode_coat(&flower_to_coat(&flower, &RenderOpts::default()).unwrap());
     let (w, h, back) = render_splats(&ply, bg);
     assert_eq!((w, h), (c.width, c.height));

@@ -12,7 +12,7 @@ The nouns are the stages of a painting, each made from the one above it, and eve
 
 | one | many | stage | kept as |
 |---|---|---|---|
-| petal | flower | what you write | `.flower.json`, or on a `.flower.png` |
+| petal | flower | what you write | `.flower`, or on a `.flower.png` |
 | dab | coat | what painting lays | `.coat.ply` |
 | pixel | canvas | what you see | `.png`, with its flower as `.flower.png` |
 
@@ -20,7 +20,7 @@ A petal is a list of control points with pressure and tilt; the engine resamples
 
 It was written so a language model can paint with its own strokes. The model writes a program; one run of it builds a flower, paints it once and saves the flower on its canvas; the model looks at the canvas and changes the program. The same flower always paints the same pixels.
 
-The chrysanthemum above is `examples/kiku.flower.json`: 629 petals in 97 KB (23 KB gzipped). Painted, they become 87,114 dabs, which take 13 MB as a coat. The petals are the part that has to fit in a context window; the dabs never do.
+The chrysanthemum above is `examples/kiku.flower`: 629 petals in 21 KB. Painted, they become 87,114 dabs, which take 13 MB as a coat. The petals are the part that has to fit in a context window; the dabs never do.
 
 This file is for painting with it and ends with the API. [DESIGN.md](DESIGN.md) is how the engine works, for whoever changes it; [CHANGELOG.md](CHANGELOG.md) is what changed between versions.
 
@@ -39,9 +39,10 @@ The package has no dependencies of its own, and no command line.
 import paintcode as pc
 
 flower = {"width": 400, "height": 200, "background": "#f4efe6", "seed": 1,
-          "petals": [{"brush": "nib", "color": "#223", "points": [[20, 100], [80, 140], [140, 90]]},
-                     {"brush": "filbert", "size": 12, "color": [200, 120, 40],
-                      "points": [[20, 170, 0.3], [200, 165, 1], [380, 175, 0.2]]}]}
+          "petals": [{"brush": "nib", "color": "#223", "smooth": True,
+                      "points": [[20, 100, 1, 0], [80, 140, 1, 0], [140, 90, 1, 0]]},
+                     {"brush": "filbert", "size": 12, "color": [200, 120, 40], "smooth": True,
+                      "points": [[20, 170, 0.3, 0], [200, 165, 1, 0], [380, 175, 0.2, 0]]}]}
 
 canvas = pc.flower_to_canvas(flower=flower, supersample=2)
 pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathname="sketch")  # sketch.flower.png
@@ -51,37 +52,41 @@ A painter works in versions. The one `.flower.png` is both the picture to look a
 
 ```python
 flower = pc.load_flower("sketch.flower.png")
-flower["petals"].append({"brush": "ink", "color": "#223", "points": [[60, 40], [340, 60]]})
+flower["petals"].append({"brush": "ink", "color": "#223", "smooth": True,
+                         "points": [[60, 40, 1, 0], [340, 60, 1, 0]]})
 canvas = pc.flower_to_canvas(flower=flower, supersample=2)
 pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathname="sketch")
 ```
 
-The flower is all there is to keep: the coat and the canvas come from it.
+The flower is all there is to keep: the coat and the canvas come from it. To see one, print it: `print(pc.load_flower("sketch.flower.png"))`.
 
 ## Flower format
 
-```json
-{
-  "width": 640, "height": 640, "background": "#2a2f4a", "seed": 24,
-  "brushes": { "soft": { "brush": "filbert", "size": 8.5 } },
-  "petals": [
-    { "brush": "soft", "color": [234, 164, 52],
-      "points": [[330, 270, 0.3], [380, 240, 1.0], [420, 250, 0.45]] },
-    { "brush": "ink", "color": "#e8d9b0", "size": 1.4, "flow": 0.3,
-      "points": [[340, 268], [400, 246]] },
-    { "brush": "blender", "color": null, "points": [[300, 300], [360, 300]] }
-  ]
-}
+A flower is a dict, and every key in it is written: nothing has a default.
+
+```python
+{"width": 640, "height": 640, "background": "#2a2f4a", "seed": 24,
+ "brushes": {"soft": {"brush": "filbert", "size": 8.5}},
+ "petals": [
+    {"brush": "soft", "color": [234, 164, 52], "smooth": True,
+     "points": [[330, 270, 0.3, 0], [380, 240, 1.0, 0], [420, 250, 0.45, 0]]},
+    {"brush": "ink", "color": "#e8d9b0", "size": 1.4, "flow": 0.3, "smooth": False,
+     "points": [[340, 268, 1, 0], [400, 246, 1, 0.5]]},
+    {"brush": "blender", "color": None, "smooth": True,
+     "points": [[300, 300, 1, 0], [360, 300, 1, 0]]}]}
 ```
 
-- **points** are `[x, y]`, `[x, y, pressure]` or `[x, y, pressure, tilt]`, with pressure and tilt in 0..1 (defaults 1 and 0). Coordinates are floats.
-- **brush** is a name from `paintcode.BRUSHES`, a name from `brushes`, or an inline object `{"brush": ..., ...}`. Any brush field can also be overridden directly on the petal.
-- **color** is `[r, g, b]` (0..255) or `"#rrggbb"`. `null` loads the brush with whatever is under its first touch, which makes it a smudge.
-- **smooth** (default `true`) runs a centripetal Catmull-Rom spline through the points; `false` keeps straight segments.
+- **width**, **height** are the flower's own pixels, the way an SVG's viewBox is: coordinates are in them, and `scale` paints the same flower larger or smaller.
+- **points** are rows of four, `[x, y, pressure, tilt]`, with pressure and tilt in 0..1. Coordinates are floats.
+- **brush** is a name from `paintcode.BRUSHES`, a name from `brushes`, or a dict: `{"brush": name, ...}` with some fields changed, or every field written out. Any brush field can also be changed directly on the petal.
+- **color** is `[r, g, b]` (0..255) or `"#rrggbb"`. `None` loads the brush with whatever is under its first touch, which makes it a smudge.
+- **smooth** `True` runs a centripetal Catmull-Rom spline through the points; `False` keeps straight segments.
 - **id** (optional) names the petal, once in the flower. Its jitter is keyed by the name, so taking out, adding or reordering other petals never changes how it lies.
 - **group** (optional) names the petals it belongs with, such as `"sky"`. A petal in a group, and without an id, is keyed by the group and its place among them, so only a change in its own group can move its jitter.
 
 Jitter is counter-based, so editing or lengthening one petal never moves the jitter of another, and appending petals leaves the ones before them alone. A petal without an `id` or a `group` is keyed by its index: taking one out of the middle moves the jitter of the unnamed petals after it.
+
+A flower is kept as a `.flower`, bitcode inside zstd, or on its canvas as a `.flower.png`. It is kept as what painted it: brush names and colours in hex are resolved, so a flower loaded back has every petal's whole brush and every colour as numbers, and paints the same.
 
 ## Brushes
 

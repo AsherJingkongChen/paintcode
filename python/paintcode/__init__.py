@@ -5,7 +5,7 @@ Painting turns each petal into dabs; all the dabs together are the coat.
 The coat over the background is the canvas, the pixels you see.
 
     import paintcode as pc
-    flower = pc.load_flower("kiku.flower.json")         # or a .flower.png
+    flower = pc.load_flower("kiku.flower")              # or a .flower.png
     canvas = pc.flower_to_canvas(flower=flower)
     pc.save_canvas(canvas=pc.flower_on_canvas(flower=flower, canvas=canvas), pathname="kiku")
     pc.save_coat(coat=pc.flower_to_coat(flower=flower), pathname="kiku")   # kiku.coat.ply

@@ -8,7 +8,12 @@ use crate::{Flower, RenderOpts, flower_to_coat, lay_coat, paint_flower};
 use serde_json::{Value, json};
 
 fn flower(v: Value) -> Flower {
-    Flower::from_value(&v).unwrap()
+    super::flower(&v)
+}
+
+/// What the parser says of a test flower, filled in by [`super::full`].
+fn parse(v: &Value) -> crate::Result<Flower> {
+    Flower::from_potpourri(&super::potpourri(&super::full(v)))
 }
 
 fn small(seed: i64) -> Value {
@@ -24,8 +29,14 @@ fn coat(v: Value, opts: RenderOpts) -> Coat {
     flower_to_coat(&flower(v), &opts).unwrap()
 }
 
+/// A colour as a flower keeps it: 0..255.
+fn written(hex: &str) -> [f32; 3] {
+    crate::flower::parse_color(&super::potpourri(&json!(hex))).unwrap()
+}
+
+/// A colour as painting uses it: 0..1.
 fn rgb(hex: &str) -> [f32; 3] {
-    crate::flower::parse_color(&json!(hex)).unwrap()
+    crate::flower::unit(crate::flower::parse_color(&super::potpourri(&json!(hex))).unwrap())
 }
 
 fn row(points: &[[f64; 2]]) -> Vec<[f64; 4]> {
@@ -133,7 +144,7 @@ fn pickup_does_not_depend_on_dab_spacing() {
         petal(
             &mut c,
             &b,
-            Color::Rgb(rgb("#ff0000")),
+            Color::Rgb(written("#ff0000")),
             &row(&[[10., 20.], [290., 20.]]),
         )
         .carried
@@ -193,7 +204,7 @@ fn a_dry_background_is_not_picked_up() {
     let carried = petal(
         &mut c,
         &b,
-        Color::Rgb(rgb("#2b2d42")),
+        Color::Rgb(written("#2b2d42")),
         &row(&[[10., 20.], [290., 20.]]),
     )
     .carried;
@@ -254,7 +265,7 @@ fn hardness_sharpens_the_edge() {
         petal(
             &mut c,
             &b,
-            Color::Rgb([1.0; 3]),
+            Color::Rgb([255.0; 3]),
             &row(&[[20., 30.], [180., 30.]]),
         );
         let col: Vec<f32> = (0..30).map(|y| c.planes[0][y * 200 + 100]).collect();
@@ -279,7 +290,7 @@ fn the_same_size_looks_the_same_at_any_hardness() {
             petal(
                 &mut c,
                 &b,
-                Color::Rgb([1.0; 3]),
+                Color::Rgb([255.0; 3]),
                 &row(&[[20., 40.], [180., 40.]]),
             );
             (0..80)
@@ -385,7 +396,7 @@ fn a_flower_rides_on_its_canvas() {
 // ------------------------------------------------------------ mistakes are errors, not crashes
 
 fn error(v: Value, opts: RenderOpts) -> String {
-    match Flower::from_value(&v) {
+    match parse(&v) {
         Err(e) => e.to_string(),
         Ok(s) => paint_flower(&s, &opts).unwrap_err().to_string(),
     }
@@ -418,7 +429,7 @@ fn a_point_far_off_the_canvas_is_an_error() {
     );
     // a petal that enters from just off the canvas is fine
     let ok = json!({"width": 100, "height": 100, "petals": [{"brush": "ink", "points": [[-300, 10], [50, 50]]}]});
-    assert!(Flower::from_value(&ok).is_ok());
+    assert!(parse(&ok).is_ok());
 }
 
 #[test]
@@ -433,7 +444,7 @@ fn canvas_numbers_must_be_whole() {
         let e = error(s, RenderOpts::default());
         assert!(e.starts_with(k), "{e}");
     }
-    assert!(Flower::from_value(&json!({"width": 100.0, "height": 50})).is_ok());
+    assert!(parse(&json!({"width": 100.0, "height": 50})).is_ok());
     let e = paint_flower(
         &flower(json!({"petals": []})),
         &RenderOpts {
@@ -446,9 +457,9 @@ fn canvas_numbers_must_be_whole() {
 
 #[test]
 fn the_old_names_are_explained() {
-    let e = |v: Value| Flower::from_value(&v).unwrap_err().to_string();
-    assert!(e(json!({"canvas": {"width": 10}})).contains("top of the flower"));
-    assert!(e(json!({"strokes": []})).contains("petals"));
+    let e = |v: Value| parse(&v).unwrap_err().to_string();
+    assert!(e(json!({"canvas": {"width": 10}})).contains("unknown key"));
+    assert!(e(json!({"strokes": []})).contains("unknown key"));
     assert!(e(json!({"colour": "#fff"})).contains("unknown key"));
     let old = json!({"brushes": {"soft": {"preset": "filbert"}}});
     assert!(e(old).contains("\"preset\" is called \"brush\" now"));
@@ -571,7 +582,7 @@ fn a_group_keeps_its_jitter_unless_its_own_group_changes() {
 fn ids_and_groups_are_names() {
     let bad = |extra: Value| {
         let f = json!({"petals": [jittery(10.0, json!({"id": "a"})), jittery(20.0, extra)]});
-        Flower::from_value(&f).unwrap_err().to_string()
+        parse(&f).unwrap_err().to_string()
     };
     assert_eq!(
         bad(json!({"id": "a"})),

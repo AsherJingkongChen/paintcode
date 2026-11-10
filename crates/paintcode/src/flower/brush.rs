@@ -1,11 +1,10 @@
 use crate::math::gauss;
-use serde_json::{Map, Value};
 
-use super::{Error, Result, err};
+use super::{Error, Potpourri, Result, err};
 
 /// How one control point (x, y, pressure, tilt) becomes one dab. The fields are the README's
 /// "Brush fields" table.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, bitcode::Encode, bitcode::Decode)]
 pub struct Brush {
     pub size: f64,
     pub aspect: f64,
@@ -157,52 +156,64 @@ pub fn brush(name: &str) -> Option<Brush> {
 }
 
 impl Brush {
-    /// Brush from a name, or an object `{"brush": ..., field: value, ...}`.
-    pub fn from_spec(spec: &Value) -> Result<Brush> {
+    /// Brush from a name, or an object: `{"brush": name, field: value, ...}`, a named brush with
+    /// some fields replaced, or every field written out, with no "brush" to start from.
+    pub fn from_potpourri(spec: &Potpourri) -> Result<Brush> {
         match spec {
-            Value::String(name) => brush(name).ok_or_else(|| {
+            Potpourri::Str(name) => brush(name).ok_or_else(|| {
                 Error::Flower(format!("unknown brush {name:?}; have {:?}", sorted_names()))
             }),
-            Value::Object(m) if m.contains_key("preset") => {
+            Potpourri::Map(m) if spec.get("preset").is_some() => {
+                let _ = m;
                 err("\"preset\" is called \"brush\" now: {\"brush\": \"filbert\", ...}")
             }
-            Value::Object(m) => {
-                let mut fields = m.clone();
-                let base = match fields.remove("brush") {
-                    Some(p) => Brush::from_spec(&p)?,
-                    None => Brush::default(),
+            Potpourri::Map(m) => {
+                let fields: Vec<(String, Potpourri)> =
+                    m.iter().filter(|(k, _)| k != "brush").cloned().collect();
+                let base = match spec.get("brush") {
+                    Some(p) => Brush::from_potpourri(p)?,
+                    None => {
+                        let missing: Vec<&str> = FIELDS
+                            .iter()
+                            .copied()
+                            .filter(|f| spec.get(f).is_none())
+                            .collect();
+                        if !missing.is_empty() {
+                            return err(format!(
+                                "a brush with no \"brush\" to start from writes every field; \
+                                 missing {missing:?}"
+                            ));
+                        }
+                        Brush::default()
+                    }
                 };
                 base.with_fields(&fields)
             }
-            other => err(format!("a brush is a name or an object, got {other}")),
+            other => err(format!("a brush is a name or a dict, got {other}")),
         }
     }
 
     /// A copy with some fields replaced; unknown names are an error.
-    pub fn with_fields(&self, fields: &Map<String, Value>) -> Result<Brush> {
-        let unknown: Vec<&str> = fields
-            .keys()
-            .map(|k| k.as_str())
+    pub fn with_fields(&self, fields: &[(String, Potpourri)]) -> Result<Brush> {
+        let mut unknown: Vec<&str> = fields
+            .iter()
+            .map(|(k, _)| k.as_str())
             .filter(|k| !FIELDS.contains(k))
             .collect();
         if !unknown.is_empty() {
-            let mut u = unknown.clone();
-            u.sort();
-            return err(format!("unknown brush field(s): {u:?}"));
+            unknown.sort();
+            return err(format!("unknown brush field(s): {unknown:?}"));
         }
         let mut b = self.clone();
         for (k, v) in fields {
-            let num = |v: &Value| {
-                v.as_f64().ok_or_else(|| {
+            let num = |v: &Potpourri| {
+                v.as_f64().filter(|v| v.is_finite()).ok_or_else(|| {
                     Error::Flower(format!("brush field {k} must be a number, got {v}"))
                 })
             };
-            let opt = |v: &Value| {
-                if v.is_null() {
-                    Ok(None)
-                } else {
-                    num(v).map(Some)
-                }
+            let opt = |v: &Potpourri| match v {
+                Potpourri::Null => Ok(None),
+                v => num(v).map(Some),
             };
             match k.as_str() {
                 "size" => b.size = num(v)?,
@@ -232,35 +243,34 @@ impl Brush {
         Ok(b)
     }
 
-    /// Every field by its name in a flower, the inverse of [`Brush::with_fields`]: what a named
-    /// brush is, written the way a flower would write it (`angle` and `half_life` may be null).
-    #[cfg(any(test, feature = "python"))]
-    pub fn to_fields(&self) -> Map<String, Value> {
-        let opt = |v: Option<f64>| v.map_or(Value::Null, Value::from);
+    /// Every field by its name, the inverse of [`Brush::from_potpourri`]: the brush written out in
+    /// full (`angle` and `half_life` may be null).
+    pub fn to_potpourri(&self) -> Potpourri {
+        let opt = |v: Option<f64>| v.map_or(Potpourri::Null, Potpourri::Num);
         let values = [
-            Value::from(self.size),
-            Value::from(self.aspect),
+            Potpourri::Num(self.size),
+            Potpourri::Num(self.aspect),
             opt(self.angle),
-            Value::from(self.hardness),
-            Value::from(self.flow),
-            Value::from(self.spacing),
-            Value::from(self.min_size),
-            Value::from(self.size_gamma),
-            Value::from(self.min_flow),
-            Value::from(self.flow_gamma),
-            Value::from(self.tilt_stretch),
-            Value::from(self.size_jitter),
-            Value::from(self.angle_jitter),
-            Value::from(self.pos_jitter),
-            Value::from(self.flow_jitter),
-            Value::from(self.load),
+            Potpourri::Num(self.hardness),
+            Potpourri::Num(self.flow),
+            Potpourri::Num(self.spacing),
+            Potpourri::Num(self.min_size),
+            Potpourri::Num(self.size_gamma),
+            Potpourri::Num(self.min_flow),
+            Potpourri::Num(self.flow_gamma),
+            Potpourri::Num(self.tilt_stretch),
+            Potpourri::Num(self.size_jitter),
+            Potpourri::Num(self.angle_jitter),
+            Potpourri::Num(self.pos_jitter),
+            Potpourri::Num(self.flow_jitter),
+            Potpourri::Num(self.load),
             opt(self.half_life),
-            Value::from(self.min_load),
-            Value::from(self.pickup),
-            Value::from(self.grain),
-            Value::from(self.grain_scale),
+            Potpourri::Num(self.min_load),
+            Potpourri::Num(self.pickup),
+            Potpourri::Num(self.grain),
+            Potpourri::Num(self.grain_scale),
         ];
-        FIELDS.iter().map(|k| k.to_string()).zip(values).collect()
+        Potpourri::Map(FIELDS.iter().map(|k| k.to_string()).zip(values).collect())
     }
 
     /// Sizes and distances scaled for a larger render.
@@ -342,9 +352,9 @@ mod tests {
     fn fields_round_trip_for_every_brush() {
         for name in BRUSH_NAMES {
             let b = brush(name).unwrap();
-            let fields = b.to_fields();
-            assert_eq!(fields.len(), FIELDS.len());
-            assert_eq!(Brush::default().with_fields(&fields).unwrap(), b, "{name}");
+            let spec = b.to_potpourri();
+            assert_eq!(spec.as_map().unwrap().len(), FIELDS.len());
+            assert_eq!(Brush::from_potpourri(&spec).unwrap(), b, "{name}");
         }
     }
 }

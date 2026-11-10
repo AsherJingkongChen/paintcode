@@ -6,17 +6,19 @@
 //! signatures and docs into the type stub, `python/paintcode/_core.pyi`, which
 //! `src/bin/stub_gen.rs` writes, with the README that ends in it.
 //!
-//! A flower is a dict (anything `json.dumps` takes). The files are read and written here, in Rust.
+//! A flower is a dict of dicts, lists, str, int, float, bool and None. The files are read and
+//! written here, in Rust.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::flower::Potpourri;
 use crate::{Error, RenderOpts, io};
 use pyo3::exceptions::{PyMemoryError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 use pyo3_stub_gen::runtime::PyModuleTypeAliasExt;
-use serde_json::Value;
 
 /// The module's docstring, at run time and in the stub.
 const DOC: &str = "\
@@ -36,7 +38,7 @@ pyo3_stub_gen::module_doc!("paintcode._core", "{}", DOC);
 pyo3_stub_gen::type_alias!(
     "paintcode._core",
     Flower = HashMap<String, Py<PyAny>>,
-    "A flower, as a dict: anything json.dumps takes."
+    "A flower, as a dict of dicts, lists, str, int, float, bool and None, every key written."
 );
 
 pyo3_stub_gen::module_variable!(
@@ -85,18 +87,81 @@ fn file_error(path: &Path, e: Error) -> PyErr {
 
 /// A flower from its dict, checked: what the engine would refuse is refused here, before any file
 /// is written or any pixel is painted.
-fn to_flower(py: Python<'_>, flower: &Bound<'_, PyAny>) -> PyResult<crate::Flower> {
-    let text: String = py
-        .import("json")?
-        .call_method1("dumps", (flower,))?
-        .extract()?;
-    crate::Flower::from_json(&text).map_err(value_error)
+fn to_flower(flower: &Bound<'_, PyAny>) -> PyResult<crate::Flower> {
+    crate::Flower::from_potpourri(&to_potpourri(flower)?).map_err(value_error)
 }
 
-/// JSON to a dict, keys in their written order.
-fn to_dict<'py>(py: Python<'py>, value: &Value) -> PyResult<Bound<'py, PyAny>> {
-    py.import("json")?
-        .call_method1("loads", (value.to_string(),))
+/// A Python value as a [`Potpourri`]: dicts (str keys, in their order), lists and tuples, str, int,
+/// float, bool and None. Anything else is no part of a flower.
+fn to_potpourri(v: &Bound<'_, PyAny>) -> PyResult<Potpourri> {
+    if v.is_none() {
+        return Ok(Potpourri::Null);
+    }
+    if let Ok(b) = v.cast::<PyBool>() {
+        return Ok(Potpourri::Bool(b.is_true()));
+    }
+    if let Ok(i) = v.cast::<PyInt>() {
+        // a seed may use all 64 bits; it is hashed as a u64
+        return Ok(match i.extract::<i64>() {
+            Ok(n) => Potpourri::Int(n),
+            Err(_) => match i.extract::<u64>() {
+                Ok(u) => Potpourri::Int(u as i64),
+                Err(_) => Potpourri::Num(i.extract::<f64>()?),
+            },
+        });
+    }
+    if let Ok(f) = v.cast::<PyFloat>() {
+        return Ok(Potpourri::Num(f.value()));
+    }
+    if let Ok(s) = v.cast::<PyString>() {
+        return Ok(Potpourri::Str(s.to_str()?.to_owned()));
+    }
+    if let Ok(d) = v.cast::<PyDict>() {
+        let mut m = Vec::with_capacity(d.len());
+        for (k, val) in d.iter() {
+            let k = k
+                .cast::<PyString>()
+                .map_err(|_| PyValueError::new_err(format!("a key must be a str, got {k}")))?
+                .to_str()?
+                .to_owned();
+            m.push((k, to_potpourri(&val)?));
+        }
+        return Ok(Potpourri::Map(m));
+    }
+    if v.cast::<PyList>().is_ok() || v.cast::<PyTuple>().is_ok() {
+        return Ok(Potpourri::List(
+            v.try_iter()?
+                .map(|x| to_potpourri(&x?))
+                .collect::<PyResult<_>>()?,
+        ));
+    }
+    Err(PyValueError::new_err(format!(
+        "a flower holds dicts, lists, str, int, float, bool and None, not {}",
+        v.get_type().name()?
+    )))
+}
+
+/// A [`Potpourri`] as Python values: the inverse of [`to_potpourri`].
+fn to_dict<'py>(py: Python<'py>, v: &Potpourri) -> PyResult<Bound<'py, PyAny>> {
+    Ok(match v {
+        Potpourri::Null => py.None().into_bound(py),
+        Potpourri::Bool(b) => PyBool::new(py, *b).to_owned().into_any(),
+        Potpourri::Int(n) => n.into_pyobject(py)?.into_any(),
+        Potpourri::Num(f) => PyFloat::new(py, *f).into_any(),
+        Potpourri::Str(s) => PyString::new(py, s).into_any(),
+        Potpourri::List(l) => {
+            let items: Vec<Bound<'py, PyAny>> =
+                l.iter().map(|x| to_dict(py, x)).collect::<PyResult<_>>()?;
+            PyList::new(py, items)?.into_any()
+        }
+        Potpourri::Map(m) => {
+            let d = PyDict::new(py);
+            for (k, x) in m {
+                d.set_item(k, to_dict(py, x)?)?;
+            }
+            d.into_any()
+        }
+    })
 }
 
 fn opts(scale: f64, supersample: i64) -> RenderOpts {
@@ -239,29 +304,28 @@ impl Coat {
 
 // ------------------------------------------------------------------------------------- files
 
-/// The flower in a .flower.json, or on a .flower.png; keys in their written order. A PNG with no
-/// flower on it is an error.
+/// The flower in a .flower, or on a .flower.png, written out in full: every petal with its whole
+/// brush, every colour as numbers. A PNG with no flower on it is an error.
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[gen_stub(override_return_type(type_repr = "Flower"))]
 fn load_flower<'py>(py: Python<'py>, path: PathBuf) -> PyResult<Bound<'py, PyAny>> {
     let bytes = std::fs::read(&path)?;
     let flower = io::decode_flower(&bytes).map_err(|e| file_error(&path, e))?;
-    to_dict(py, &flower.source)
+    to_dict(py, &flower.to_potpourri())
 }
 
-/// Write a flower as JSON, one petal per line, at pathname.flower.json. A flower the engine would
-/// refuse is refused.
+/// Write a flower at pathname.flower: bitcode inside zstd. A flower the engine would refuse is
+/// refused.
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (*, flower, pathname))]
 fn save_flower(
-    py: Python<'_>,
     #[gen_stub(override_type(type_repr = "Flower"))] flower: &Bound<'_, PyAny>,
     pathname: PathBuf,
 ) -> PyResult<PathBuf> {
-    let flower = to_flower(py, flower)?;
-    write(pathname, ".flower.json", &io::encode_flower(&flower))
+    let flower = to_flower(flower)?;
+    write(pathname, ".flower", &io::encode_flower(&flower))
 }
 
 /// The canvas in a PNG: only the pixels, whether or not a flower is on it (load_flower takes the
@@ -331,7 +395,7 @@ fn flower_to_canvas(
     scale: f64,
     supersample: i64,
 ) -> PyResult<Canvas> {
-    let flower = to_flower(py, flower)?;
+    let flower = to_flower(flower)?;
     let o = opts(scale, supersample);
     let canvas = py
         .detach(|| crate::flower_to_canvas(&flower, &o))
@@ -349,7 +413,7 @@ fn flower_to_coat(
     scale: f64,
     supersample: i64,
 ) -> PyResult<Coat> {
-    let flower = to_flower(py, flower)?;
+    let flower = to_flower(flower)?;
     let o = opts(scale, supersample);
     py.detach(|| crate::flower_to_coat(&flower, &o))
         .map(Coat)
@@ -373,11 +437,10 @@ fn coat_to_canvas(py: Python<'_>, coat: PyRef<'_, Coat>) -> PyResult<Canvas> {
 #[pyfunction]
 #[pyo3(signature = (*, flower, canvas))]
 fn flower_on_canvas(
-    py: Python<'_>,
     #[gen_stub(override_type(type_repr = "Flower"))] flower: &Bound<'_, PyAny>,
     canvas: PyRef<'_, Canvas>,
 ) -> PyResult<Canvas> {
-    let flower = to_flower(py, flower)?;
+    let flower = to_flower(flower)?;
     Ok(Canvas(crate::flower_on_canvas(&flower, canvas.0.clone())))
 }
 
@@ -390,7 +453,7 @@ fn flower_off_canvas<'py>(
     canvas: PyRef<'py, Canvas>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let flower = crate::flower_off_canvas(&canvas.0).map_err(value_error)?;
-    to_dict(py, &flower.source)
+    to_dict(py, &flower.to_potpourri())
 }
 
 #[pymodule]
@@ -412,14 +475,14 @@ fn paintcode_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flower_on_canvas, m)?)?;
     m.add_function(wrap_pyfunction!(flower_off_canvas, m)?)?;
     // every brush with its fields, as a flower would write them
-    let brushes: serde_json::Map<String, Value> = crate::flower::BRUSH_NAMES
+    let brushes = crate::flower::BRUSH_NAMES
         .iter()
         .map(|n| {
             let b = crate::flower::brush(n).expect("a listed brush");
-            (n.to_string(), Value::Object(b.to_fields()))
+            (n.to_string(), b.to_potpourri())
         })
         .collect();
-    m.add("BRUSHES", to_dict(m.py(), &Value::Object(brushes))?)?;
+    m.add("BRUSHES", to_dict(m.py(), &Potpourri::Map(brushes))?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

@@ -2,7 +2,6 @@
 these check what crosses the boundary: arguments, bytes, errors, files."""
 import ast
 import io
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +14,7 @@ import paintcode
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN = ROOT / "tests" / "golden"
-FLOWER = json.loads((GOLDEN / "features.flower.json").read_text())
+FLOWER = paintcode.load_flower(GOLDEN / "features.flower")
 
 
 def pixels(png: bytes) -> np.ndarray:
@@ -34,7 +33,7 @@ def test_the_canvas_is_the_golden_painting(tmp_path):
 
 
 def test_a_path_may_be_a_str_or_a_pathlike(tmp_path):
-    path = GOLDEN / "features.flower.json"
+    path = GOLDEN / "features.flower"
     assert paintcode.load_flower(path) == paintcode.load_flower(str(path)) == FLOWER
 
 
@@ -54,16 +53,20 @@ def test_a_flower_rides_on_its_canvas(tmp_path):
         paintcode.flower_off_canvas(paintcode.load_canvas(path))
 
 
-def test_a_flower_file_round_trip_keeps_its_key_order(tmp_path):
-    path = paintcode.save_flower(flower=FLOWER, pathname=tmp_path / "features")
-    assert path == tmp_path / "features.flower.json"
+def test_a_flower_comes_back_written_in_full(tmp_path):
+    short = dict(FLOWER, petals=[{"brush": "ink", "color": "#223", "smooth": True,
+                                  "points": [[10, 10, 1, 0], [150, 80, 0.5, 0]]}])
+    path = paintcode.save_flower(flower=short, pathname=tmp_path / "short")
+    assert path == tmp_path / "short.flower"
     back = paintcode.load_flower(path)
-    assert back == FLOWER and list(back) == list(FLOWER)
-    assert path.read_text().count("\n") == len(FLOWER["petals"]) + 2   # one petal per line
+    petal = back["petals"][0]
+    assert petal["brush"] == paintcode.BRUSHES["ink"]         # the whole brush, not its name
+    assert petal["color"] == [34.0, 34.0, 51.0]               # numbers, not hex
+    assert paintcode.load_flower(paintcode.save_flower(flower=back, pathname=tmp_path / "again")) == back
 
 
 def test_the_example_flowers_open():
-    kiku = paintcode.load_flower(ROOT / "examples" / "kiku.flower.json")
+    kiku = paintcode.load_flower(ROOT / "examples" / "kiku.flower")
     assert len(kiku["petals"]) == 629
 
 
@@ -84,16 +87,22 @@ def test_the_coat_file_has_one_splat_per_dab_and_reads_back(tmp_path):
 
 
 def test_mistakes_are_value_errors_that_name_the_petal_or_the_file(tmp_path):
-    bad = dict(FLOWER, petals=[{"brush": "ink", "sise": 3, "points": [[1, 1]]}])
+    petal = {"brush": "ink", "color": [0, 0, 0], "smooth": True, "points": [[1, 1, 1, 0]]}
     with pytest.raises(ValueError, match="petal 0.*sise"):
-        paintcode.flower_to_canvas(flower=bad)
-    with pytest.raises(ValueError, match="petal 0: petal has no points"):
-        paintcode.save_flower(flower=dict(FLOWER, petals=[{"brush": "ink"}]), pathname=tmp_path / "x")
+        paintcode.flower_to_canvas(flower=dict(FLOWER, petals=[dict(petal, sise=3)]))
+    with pytest.raises(ValueError, match="petal 0: the petal has no points"):
+        paintcode.save_flower(flower=dict(FLOWER, petals=[{k: v for k, v in petal.items() if k != "points"}]),
+                              pathname=tmp_path / "x")
+    # every row is written in full, and every key: nothing has a default
+    with pytest.raises(ValueError, match="petal 0: a point is a row of four"):
+        paintcode.flower_to_canvas(flower=dict(FLOWER, petals=[dict(petal, points=[[1, 1]])]))
+    with pytest.raises(ValueError, match="the flower has no seed"):
+        paintcode.flower_to_canvas(flower={k: v for k, v in FLOWER.items() if k != "seed"})
     with pytest.raises(ValueError, match="width must be a whole number"):
-        paintcode.flower_to_canvas(flower={"width": 200.7, "height": 90})
-    (tmp_path / "bad.flower.json").write_text("{not json")
-    with pytest.raises(ValueError, match="bad.flower.json: flower is not JSON"):
-        paintcode.load_flower(tmp_path / "bad.flower.json")
+        paintcode.flower_to_canvas(flower=dict(FLOWER, width=200.7))
+    (tmp_path / "bad.flower").write_bytes(b"{not a flower")
+    with pytest.raises(ValueError, match="bad.flower: not a flower"):
+        paintcode.load_flower(tmp_path / "bad.flower")
     bare = paintcode.save_canvas(canvas=paintcode.flower_to_canvas(flower=FLOWER), pathname=tmp_path / "bare")
     assert bare.name == "bare.png"
     with pytest.raises(ValueError, match="bare.png: no flower on this canvas"):
@@ -108,7 +117,7 @@ def test_a_huge_canvas_is_an_error_and_python_lives_on():
     # before 0.5 this was an allocation abort that took the interpreter with it
     code = ("import paintcode\n"
             "try:\n"
-            "    paintcode.flower_to_canvas(flower={'width': 100000, 'height': 100000})\n"
+            "    paintcode.flower_to_canvas(flower={'width': 100000, 'height': 100000, 'background': [0, 0, 0], 'seed': 0, 'petals': []})\n"
             "except ValueError as e:\n"
             "    print('caught', e)\n")
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
@@ -148,7 +157,7 @@ def test_more_than_one_parameter_means_keywords():
         paintcode.flower_to_canvas(FLOWER)
     with pytest.raises(TypeError):
         paintcode.flower_to_canvas(flower=FLOWER).peek(1, 2, 3, 4)
-    paintcode.load_flower(GOLDEN / "features.flower.json")    # one parameter: positional is fine
+    paintcode.load_flower(GOLDEN / "features.flower")    # one parameter: positional is fine
 
 
 def test_a_canvas_can_be_peeked_and_cropped(tmp_path):
@@ -174,8 +183,9 @@ def test_the_brushes_show_their_fields(tmp_path):
     filbert = paintcode.BRUSHES["filbert"]
     assert filbert["size"] == 5.2 and filbert["hardness"] == 0.8 and filbert["angle"] is None
     # a brush's fields written out in the flower paint the same as naming the brush
-    by_name = dict(FLOWER, petals=[{"brush": "filbert", "color": "#a33", "points": [[10, 10], [150, 80]]}])
-    by_fields = dict(FLOWER, petals=[{"brush": filbert, "color": "#a33", "points": [[10, 10], [150, 80]]}])
+    row = {"color": "#a33", "smooth": True, "points": [[10, 10, 1, 0], [150, 80, 1, 0]]}
+    by_name = dict(FLOWER, petals=[dict(row, brush="filbert")])
+    by_fields = dict(FLOWER, petals=[dict(row, brush=filbert)])
     assert (seen(paintcode.flower_to_canvas(flower=by_name), tmp_path, "name")
             == seen(paintcode.flower_to_canvas(flower=by_fields), tmp_path, "fields")).all()
 
